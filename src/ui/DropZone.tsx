@@ -27,7 +27,10 @@ export function DropZone({ onFile, busy }: Props) {
         e.preventDefault();
         if (!busy) setOver(true);
       }}
-      onDragLeave={() => setOver(false)}
+      onDragLeave={(e) => {
+        const related = e.relatedTarget as Node | null;
+        if (!related || !e.currentTarget.contains(related)) setOver(false);
+      }}
       onDrop={handleDrop}
       className={[
         "flex flex-col items-center gap-4 rounded-2xl border-2 border-dashed px-8 py-14 text-center transition-colors",
@@ -62,6 +65,7 @@ export function DropZone({ onFile, busy }: Props) {
         ref={inputRef}
         type="file"
         accept=".pdf,.xlsx,.xls,.xlsm"
+        disabled={busy}
         className="sr-only"
         onChange={(e) => {
           const file = e.target.files?.[0];
