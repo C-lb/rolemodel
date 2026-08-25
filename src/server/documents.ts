@@ -33,7 +33,7 @@ const REMEDIATION: Record<string, string> = {
   empty_workbook: "Check that the workbook has data in at least one sheet.",
   missing_api_key: "Add ANTHROPIC_API_KEY to .env.local and restart the dev server.",
   refused: "The model declined this document. Check it is a financial filing and try a narrower page range.",
-  truncated: "Re-run over a narrower page range, or upload just the statement pages.",
+  truncated: "Pick a narrower page range for this document, or split the statement pages into their own upload and retry that section on its own.",
   storage_failed: "Check that the data directory is writable and has free disk space, then try again.",
   db_error: "Try again. If it keeps happening, check the terminal running the app for the full database error.",
 };
@@ -124,9 +124,16 @@ export async function ingestAndExtract(
   } catch (error) {
     const message = (error as Error).message;
     const code = error instanceof ExtractionFailedError && error.code ? error.code : "extraction_failed";
-    deps.db.update(schema.extractionRuns)
-      .set({ status: "failed", error: message })
-      .where(eq(schema.extractionRuns.id, runId)).run();
+    // Recording the failure is best-effort: if the database is unavailable, this update will
+    // throw for the same reason the primary operation did. Swallow it — reporting the original
+    // failure to the caller is not optional, and a doomed status write must not pre-empt that.
+    try {
+      deps.db.update(schema.extractionRuns)
+        .set({ status: "failed", error: message })
+        .where(eq(schema.extractionRuns.id, runId)).run();
+    } catch {
+      // best-effort only; the ActionResult below is what the caller sees.
+    }
     return { ok: false, code, message, remediation: REMEDIATION[code] ?? GENERIC_REMEDIATION };
   }
 }

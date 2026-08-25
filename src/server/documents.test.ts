@@ -134,6 +134,16 @@ describe("ingestAndExtract", () => {
     if (out.ok) throw new Error("expected failure");
     expect(out.remediation).toBe("Add ANTHROPIC_API_KEY to .env.local and restart the dev server.");
   });
+
+  it("still returns a coded failure when recording the failed run also throws", async () => {
+    const d = deps(vi.fn().mockRejectedValue(new Error("overloaded")));
+    vi.spyOn(d.db, "update").mockImplementation(() => {
+      throw new Error("database is unavailable");
+    });
+    const out = await ingestAndExtract(d, xlsxName, bytes);
+    expect(out).toMatchObject({ ok: false, code: "extraction_failed" });
+    if (!out.ok) expect(out.message).toContain("overloaded");
+  });
 });
 
 describe("overrides", () => {

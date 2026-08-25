@@ -12,7 +12,15 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult<{
   if (!(file instanceof File)) {
     return { ok: false, code: "no_file", message: "No file was received.", remediation: "Pick a file and try again." };
   }
-  const bytes = Buffer.from(await file.arrayBuffer());
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(await file.arrayBuffer());
+  } catch (error) {
+    return {
+      ok: false, code: "upload_failed", message: (error as Error).message,
+      remediation: "The file did not finish uploading. Check your connection and try again.",
+    };
+  }
   const result = await ingestAndExtract(realDeps(), file.name, bytes);
   if (result.ok) revalidatePath(`/w/${result.data.workspaceId}`);
   return result;
