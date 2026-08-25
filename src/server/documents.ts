@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import type { Db } from "@/db/client";
-import { ingest, IngestError } from "@/ingest";
+import { ingest, IngestError, type IngestedDocument } from "@/ingest";
 import { extractDocument, ExtractionFailedError, type ClaudeCaller } from "@/extract/extract";
 import { PROMPT_VERSION } from "@/extract/prompt";
 import { MODEL_ID } from "@/extract/client";
@@ -33,6 +33,9 @@ const REMEDIATION: Record<string, string> = {
   empty_workbook: "Check that the workbook has data in at least one sheet.",
   missing_api_key: "Add ANTHROPIC_API_KEY to .env.local and restart the dev server.",
   refused: "The model declined this document. Check it is a financial filing and try a narrower page range.",
+  truncated: "Re-run over a narrower page range, or upload just the statement pages.",
+  storage_failed: "Check that the data directory is writable and has free disk space, then try again.",
+  db_error: "Try again. If it keeps happening, check the terminal running the app for the full database error.",
 };
 
 export async function ingestAndExtract(
@@ -40,7 +43,7 @@ export async function ingestAndExtract(
   filename: string,
   bytes: Buffer,
 ): Promise<ActionResult<{ workspaceId: string }>> {
-  let doc;
+  let doc: IngestedDocument;
   try {
     doc = await ingest(filename, bytes);
   } catch (error) {
@@ -50,23 +53,38 @@ export async function ingestAndExtract(
 
   const documentId = deps.newId();
   const storagePath = path.join(deps.dataDir, "uploads", `${documentId}${path.extname(filename)}`);
-  await deps.writeFile(storagePath, bytes);
 
-  deps.db.insert(schema.documents).values({
-    id: documentId,
-    filename,
-    kind: doc.kind,
-    hash: crypto.createHash("sha256").update(bytes).digest("hex"),
-    sizeBytes: bytes.length,
-    storagePath,
-    ingestedAt: deps.now(),
-  }).run();
+  try {
+    await deps.writeFile(storagePath, bytes);
+  } catch (error) {
+    return {
+      ok: false, code: "storage_failed", message: (error as Error).message,
+      remediation: REMEDIATION.storage_failed,
+    };
+  }
 
   const runId = deps.newId();
-  deps.db.insert(schema.extractionRuns).values({
-    id: runId, documentId, modelId: MODEL_ID, promptVersion: PROMPT_VERSION,
-    status: "pending", createdAt: deps.now(),
-  }).run();
+  try {
+    deps.db.insert(schema.documents).values({
+      id: documentId,
+      filename,
+      kind: doc.kind,
+      hash: crypto.createHash("sha256").update(bytes).digest("hex"),
+      sizeBytes: bytes.length,
+      storagePath,
+      ingestedAt: deps.now(),
+    }).run();
+
+    deps.db.insert(schema.extractionRuns).values({
+      id: runId, documentId, modelId: MODEL_ID, promptVersion: PROMPT_VERSION,
+      status: "pending", createdAt: deps.now(),
+    }).run();
+  } catch (error) {
+    return {
+      ok: false, code: "db_error", message: (error as Error).message,
+      remediation: REMEDIATION.db_error,
+    };
+  }
 
   try {
     const output = await extractDocument(doc, deps.call);
@@ -144,6 +162,11 @@ export async function loadWorkspace(
     ...overrideRows.map((o) => o.periodKey),
   ])].sort((a, b) => periodRank(b) - periodRank(a));
 
+  // A conflict on a cell the user has since overridden is resolved — the override is the user
+  // picking a value, which is exactly what the finding's remediation asks them to do. Mirrors
+  // buildWorkspace's own treatment of low_confidence: a value the user typed is not in question.
+  const overriddenCells = new Set(overrideRows.map((o) => `${o.canonicalKey}::${o.periodKey}`));
+
   const view = buildWorkspace({
     periods,
     facts: factRows.map((f) => ({
@@ -154,9 +177,9 @@ export async function loadWorkspace(
       canonicalKey: o.canonicalKey, periodKey: o.periodKey, value: o.value,
     })),
     scaleFactors: factRows.map((f) => f.provenance.scaleFactor),
-    conflicts: (activeRun?.conflicts ?? []).map((c) => ({
-      canonicalKey: c.canonicalKey, periodKey: c.periodKey,
-    })),
+    conflicts: (activeRun?.conflicts ?? [])
+      .filter((c) => !overriddenCells.has(`${c.canonicalKey}::${c.periodKey}`))
+      .map((c) => ({ canonicalKey: c.canonicalKey, periodKey: c.periodKey })),
   });
 
   return { ...view, documentName: workspace.name, runId: workspace.activeRunId };

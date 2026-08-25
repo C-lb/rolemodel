@@ -55,8 +55,10 @@ export async function extractDocument(
 
   if (figures.length === 0) {
     const detail = chunkErrors.map((e) => `${e.label}: ${e.message}`).join("; ");
-    const codes = new Set(chunkErrors.map((e) => e.code).filter((c): c is string => c !== undefined));
-    const code = codes.size === 1 ? [...codes][0] : undefined;
+    // Only attach a code when EVERY failing chunk agrees on it — a code shared by some but not
+    // all chunks describes just part of the failure, not the failure as a whole.
+    const allShareACode = chunkErrors.length > 0 && chunkErrors.every((e) => e.code !== undefined && e.code === chunkErrors[0].code);
+    const code = allShareACode ? chunkErrors[0].code : undefined;
     throw new ExtractionFailedError(
       `Extraction produced no figures. ${detail || "The document may not contain financial statements."}`,
       code,

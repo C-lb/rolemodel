@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as schema from "@/db/schema";
 import { migrate } from "@/db/client";
+import { MissingApiKeyError } from "@/extract/client";
 import { ingestAndExtract, loadWorkspace, setOverride, type Deps } from "./documents";
 
 function deps(call: Deps["call"]) {
@@ -113,6 +114,25 @@ describe("ingestAndExtract", () => {
 
     const ws = await loadWorkspace(d, out.data.workspaceId);
     expect(ws.findings.some((f) => f.code === "merge_conflict")).toBe(true);
+  });
+
+  it("clears the merge_conflict finding once the user overrides the conflicting cell", async () => {
+    const d = deps(vi.fn().mockResolvedValue(conflictResult));
+    const out = await ingestAndExtract(d, xlsxName, bytes);
+    if (!out.ok) throw new Error("setup failed");
+
+    await setOverride(d, out.data.workspaceId, "total_assets", "FY2024", 1500);
+    const ws = await loadWorkspace(d, out.data.workspaceId);
+    expect(ws.findings.some((f) => f.code === "merge_conflict")).toBe(false);
+    expect(ws.cell("total_assets", "FY2024").value).toBe(1500);
+  });
+
+  it("propagates a MissingApiKeyError's code and its specific remediation", async () => {
+    const d = deps(vi.fn().mockRejectedValue(new MissingApiKeyError()));
+    const out = await ingestAndExtract(d, xlsxName, bytes);
+    expect(out).toMatchObject({ ok: false, code: "missing_api_key" });
+    if (out.ok) throw new Error("expected failure");
+    expect(out.remediation).toBe("Add ANTHROPIC_API_KEY to .env.local and restart the dev server.");
   });
 });
 

@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 import { realDeps } from "@/server/deps";
 import { ingestAndExtract, setOverride, type ActionResult } from "@/server/documents";
 
+const DB_ERROR_REMEDIATION =
+  "Try again. If it keeps happening, check the terminal running the app for the full database error.";
+
 export async function uploadDocument(formData: FormData): Promise<ActionResult<{ workspaceId: string }>> {
   const file = formData.get("file");
   if (!(file instanceof File)) {
@@ -21,7 +24,11 @@ export async function saveOverride(
   if (!Number.isFinite(value)) {
     return { ok: false, code: "bad_number", message: `"${value}" is not a number.`, remediation: "Enter a plain number. Use a minus sign for negatives." };
   }
-  await setOverride(realDeps(), workspaceId, canonicalKey, periodKey, value);
+  try {
+    await setOverride(realDeps(), workspaceId, canonicalKey, periodKey, value);
+  } catch (error) {
+    return { ok: false, code: "db_error", message: (error as Error).message, remediation: DB_ERROR_REMEDIATION };
+  }
   revalidatePath(`/w/${workspaceId}`);
   return { ok: true, data: null };
 }
@@ -29,7 +36,11 @@ export async function saveOverride(
 export async function clearOverride(
   workspaceId: string, canonicalKey: string, periodKey: string,
 ): Promise<ActionResult<null>> {
-  await setOverride(realDeps(), workspaceId, canonicalKey, periodKey, null);
+  try {
+    await setOverride(realDeps(), workspaceId, canonicalKey, periodKey, null);
+  } catch (error) {
+    return { ok: false, code: "db_error", message: (error as Error).message, remediation: DB_ERROR_REMEDIATION };
+  }
   revalidatePath(`/w/${workspaceId}`);
   return { ok: true, data: null };
 }
