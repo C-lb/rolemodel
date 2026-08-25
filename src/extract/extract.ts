@@ -11,7 +11,19 @@ export type ClaudeCaller = (chunk: ExtractionChunk) => Promise<{
 
 export interface ExtractionOutput extends MergeOutput {
   usage: { tokensIn: number; tokensOut: number };
-  chunkErrors: { label: string; message: string }[];
+  chunkErrors: { label: string; message: string; code?: string }[];
+}
+
+/**
+ * Thrown when no chunk produced a usable figure. Carries `code` when every failing chunk agrees
+ * on one (e.g. every chunk hit the same missing-API-key error), so callers can show remediation
+ * specific to that failure rather than a generic message.
+ */
+export class ExtractionFailedError extends Error {
+  constructor(message: string, readonly code?: string) {
+    super(message);
+    this.name = "ExtractionFailedError";
+  }
 }
 
 export async function extractDocument(
@@ -20,19 +32,20 @@ export async function extractDocument(
 ): Promise<ExtractionOutput> {
   const chunks = chunkDocument(doc);
   if (chunks.length === 0) {
-    throw new Error("There was nothing in this document to extract.");
+    throw new ExtractionFailedError("There was nothing in this document to extract.");
   }
 
   const settled = await Promise.allSettled(chunks.map((chunk) => call(chunk)));
 
   const figures: ExtractedFigure[] = [];
-  const chunkErrors: { label: string; message: string }[] = [];
+  const chunkErrors: { label: string; message: string; code?: string }[] = [];
   let tokensIn = 0;
   let tokensOut = 0;
 
   for (const [i, outcome] of settled.entries()) {
     if (outcome.status === "rejected") {
-      chunkErrors.push({ label: chunks[i].label, message: (outcome.reason as Error).message });
+      const reason = outcome.reason as Error & { code?: string };
+      chunkErrors.push({ label: chunks[i].label, message: reason.message, code: reason.code });
       continue;
     }
     figures.push(...outcome.value.result.figures);
@@ -42,7 +55,12 @@ export async function extractDocument(
 
   if (figures.length === 0) {
     const detail = chunkErrors.map((e) => `${e.label}: ${e.message}`).join("; ");
-    throw new Error(`Extraction produced no figures. ${detail || "The document may not contain financial statements."}`);
+    const codes = new Set(chunkErrors.map((e) => e.code).filter((c): c is string => c !== undefined));
+    const code = codes.size === 1 ? [...codes][0] : undefined;
+    throw new ExtractionFailedError(
+      `Extraction produced no figures. ${detail || "The document may not contain financial statements."}`,
+      code,
+    );
   }
 
   return { ...mergeFigures(figures), usage: { tokensIn, tokensOut }, chunkErrors };
