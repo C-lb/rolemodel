@@ -7,9 +7,12 @@ export interface ExtractionChunk {
   label: string;
   /** Text content for spreadsheet chunks, or a page-range description for PDF chunks. */
   text: string;
-  /** Present only for PDF chunks: the whole PDF, sent as a document block. */
+  /** Present only for PDF chunks: the whole PDF, uploaded once per document and referenced per chunk. */
   pdfBytes?: Buffer;
-  pageRange?: { from: number; to: number };
+  /** Present only for PDF chunks: the source filename, used when uploading the PDF. */
+  pdfFilename?: string;
+  /** The exact pages this chunk covers, in order. Not necessarily contiguous. */
+  pages?: number[];
 }
 
 export const SYSTEM_PROMPT = [
@@ -26,6 +29,13 @@ export const SYSTEM_PROMPT = [
   "- page is the 1-indexed page the figure is printed on. Get this right; a reader will click through to check it.",
 ].join("\n");
 
+/** "page 7", "pages 7 and 9", "pages 7, 9 and 12" — never a range, because the pages need not be contiguous. */
+export function formatPageList(pages: number[]): string {
+  if (pages.length === 1) return `page ${pages[0]}`;
+  const head = pages.slice(0, -1).join(", ");
+  return `pages ${head} and ${pages[pages.length - 1]}`;
+}
+
 function taxonomyBlock(): string {
   return TAXONOMY.map((i) => `${i.key} [${i.statement}] — ${i.label}: ${i.definition}`).join("\n");
 }
@@ -35,8 +45,8 @@ export function buildUserPrompt(chunk: ExtractionChunk): string {
     "Canonical line-item keys:",
     taxonomyBlock(),
     "",
-    chunk.pageRange
-      ? `Extract every financial-statement figure printed on pages ${chunk.pageRange.from} to ${chunk.pageRange.to} of the attached document. Ignore pages outside that range.`
+    chunk.pages && chunk.pages.length > 0
+      ? `Extract every financial-statement figure printed on ${formatPageList(chunk.pages)} of the attached document. Those are the only pages to read; ignore every other page of the attachment.`
       : "Extract every financial-statement figure from the content below.",
     "",
     chunk.text,
@@ -54,11 +64,13 @@ export function chunkDocument(doc: IngestedDocument): ExtractionChunk[] {
     const chunks: ExtractionChunk[] = [];
     for (let i = 0; i < targets.length; i += PAGES_PER_CHUNK) {
       const slice = targets.slice(i, i + PAGES_PER_CHUNK);
+      const pageNumbers = slice.map((p) => p.pageNumber);
       chunks.push({
-        label: `pages ${slice[0].pageNumber}-${slice[slice.length - 1].pageNumber}`,
+        label: formatPageList(pageNumbers),
         text: slice.map((p) => `--- page ${p.pageNumber} ---\n${p.text}`).join("\n\n"),
         pdfBytes: doc.bytes,
-        pageRange: { from: slice[0].pageNumber, to: slice[slice.length - 1].pageNumber },
+        pdfFilename: doc.filename,
+        pages: pageNumbers,
       });
     }
     return chunks;
