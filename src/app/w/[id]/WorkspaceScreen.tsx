@@ -242,7 +242,18 @@ export function WorkspaceScreen({ workspaceId, documentName, periods, findings, 
         )}
 
         {inspected && (
-          <ProvenancePanel cell={inspected} documentName={documentName} onClose={() => setInspected(null)} />
+          <ProvenancePanel
+            cell={inspected}
+            documentName={documentName}
+            onClose={() => setInspected(null)}
+            // The panel shows a stale copy of the cell once the override is gone,
+            // so it closes on reset. The toast carries the outcome and the undo.
+            onReset={() => {
+              const { canonicalKey, periodKey } = inspected;
+              setInspected(null);
+              reset(canonicalKey, periodKey);
+            }}
+          />
         )}
       </main>
     </DndContext>

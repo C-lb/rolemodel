@@ -11,6 +11,8 @@ interface Props {
   cell: Cell;
   documentName: string;
   onClose: () => void;
+  /** Discard the user's value for this cell. The same path the grid's reset uses. */
+  onReset: () => void;
 }
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -22,7 +24,7 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function ProvenancePanel({ cell, documentName, onClose }: Props) {
+export function ProvenancePanel({ cell, documentName, onClose, onReset }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -97,6 +99,33 @@ export function ProvenancePanel({ cell, documentName, onClose }: Props) {
           <Row label="Extracted value" value={formatMoney(cell.extractedValue)} />
           <Row label="Confidence" value={cell.confidence === undefined ? "—" : `${Math.round(cell.confidence * 100)}%`} />
           {cell.source === "override" && <Row label="Your value" value={formatMoney(cell.value)} />}
+
+          {cell.source === "override" && (
+            <div className="pt-4">
+              <Tooltip label={tooltip("control.reset_cell")}>
+                <button
+                  type="button"
+                  onClick={onReset}
+                  className="inline-flex items-center gap-2 whitespace-nowrap rounded-[10px] border border-white/10 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+                >
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="size-[1em] align-middle"
+                  >
+                    <polyline points="1 4 1 10 7 10" />
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                  </svg>
+                  Reset to extracted value
+                </button>
+              </Tooltip>
+            </div>
+          )}
         </div>
       )}
       </aside>

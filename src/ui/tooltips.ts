@@ -23,27 +23,27 @@ const findingTooltips: Record<string, string> = {
     "The same line item and period were extracted twice with different values. The higher-confidence value is active until you choose.",
 };
 
-/** Single source of truth for which control keys must have a tooltip. Add a key here and to controlTooltips together. */
+/**
+ * Single source of truth for which control keys must have a tooltip. Add a key here
+ * and to controlTooltips together. A key with no call site in src/ is a test failure:
+ * copy for a control that does not exist is copy nobody can check against the product.
+ */
 export const CONTROL_KEYS = [
   "control.upload",
   "control.reset_cell",
   "control.remap",
   "control.provenance",
-  "control.rerun_extraction",
   "control.dismiss_banner",
   "control.confidence_badge",
-  "control.scale_badge",
 ] as const;
 
 const controlTooltips: Record<(typeof CONTROL_KEYS)[number], string> = {
-  "control.upload": "Drop a 10-K, 10-Q, case PDF or Excel workbook here, or click to pick a file. Limit 30 MB.",
+  "control.upload": "Drop a 10-K, 10-Q, case PDF, Excel workbook (.xlsx, .xlsm) or CSV here, or click to pick a file. Limit 30 MB.",
   "control.reset_cell": "Discard your edit and restore the value as extracted from the source document.",
   "control.remap": "Move this line to a different canonical item. Use this when the extractor put a figure in the wrong bucket.",
   "control.provenance": "Show where this figure came from: source page, the label and value as printed, and the scale applied.",
-  "control.rerun_extraction": "Extract this document again. The current results are kept until the new run succeeds.",
-  "control.dismiss_banner": "Hide this message. It will return if the underlying problem is still present after your next edit.",
+  "control.dismiss_banner": "Hide this message for the rest of this session. Nothing about the figures changes, and it comes back if you reload the page while the problem is still there.",
   "control.confidence_badge": "How confident the extractor was in this figure and its mapping. Below 60% is flagged for review.",
-  "control.scale_badge": "The multiplier applied to the printed figure to reach base currency units.",
 };
 
 /** Copy for figures that landed outside the taxonomy, which have no line-item definition to show. */

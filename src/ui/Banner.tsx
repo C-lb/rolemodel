@@ -1,6 +1,7 @@
 "use client";
 
 import { Tooltip } from "./Tooltip";
+import { tooltip } from "./tooltips";
 
 interface Props {
   severity: "blocking" | "warning";
@@ -80,17 +81,19 @@ export function Banner({ severity, title, titleHelp, message, remediation, actio
             </button>
           )}
           {onDismiss && (
-            <button
-              type="button"
-              onClick={onDismiss}
-              aria-label="Dismiss"
-              className="rounded-[10px] p-1 text-current/70 transition-colors hover:bg-current/10 hover:text-current focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
-            >
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="size-[1em]">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
+            <Tooltip label={tooltip("control.dismiss_banner")} align="end">
+              <button
+                type="button"
+                onClick={onDismiss}
+                aria-label="Dismiss"
+                className="rounded-[10px] p-1 text-current/70 transition-colors hover:bg-current/10 hover:text-current focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="size-[1em]">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </Tooltip>
           )}
         </div>
       </div>

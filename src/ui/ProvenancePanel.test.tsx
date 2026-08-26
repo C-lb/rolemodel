@@ -19,8 +19,11 @@ function cell(over: Partial<Cell> = {}): Cell {
 
 function renderPanel(over: Partial<Cell> = {}) {
   const onClose = vi.fn();
-  render(<ProvenancePanel cell={cell(over)} documentName="acme-10-K.pdf" onClose={onClose} />);
-  return { onClose };
+  const onReset = vi.fn();
+  render(
+    <ProvenancePanel cell={cell(over)} documentName="acme-10-K.pdf" onClose={onClose} onReset={onReset} />,
+  );
+  return { onClose, onReset };
 }
 
 describe("ProvenancePanel", () => {
@@ -37,6 +40,21 @@ describe("ProvenancePanel", () => {
     expect(screen.getByText(/You entered this value/)).toBeTruthy();
   });
 
+  it("shows the override beside the extracted value with a reset control", () => {
+    const { onReset } = renderPanel({ source: "override", value: 9_000_000 });
+
+    expect(screen.getByText("Extracted value").nextSibling?.textContent).toContain("8,400,000");
+    expect(screen.getByText("Your value").nextSibling?.textContent).toContain("9,000,000");
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset to extracted value" }));
+    expect(onReset).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no reset for a figure the user has not overridden", () => {
+    renderPanel();
+    expect(screen.queryByRole("button", { name: "Reset to extracted value" })).toBeNull();
+  });
+
   it("closes on Escape", () => {
     const { onClose } = renderPanel();
     fireEvent.keyDown(document, { key: "Escape" });
@@ -49,7 +67,7 @@ describe("ProvenancePanel", () => {
     opener.focus();
 
     const { unmount } = render(
-      <ProvenancePanel cell={cell()} documentName="acme-10-K.pdf" onClose={() => {}} />,
+      <ProvenancePanel cell={cell()} documentName="acme-10-K.pdf" onClose={() => {}} onReset={() => {}} />,
     );
     expect(document.activeElement).toBe(screen.getByLabelText("Close"));
 
