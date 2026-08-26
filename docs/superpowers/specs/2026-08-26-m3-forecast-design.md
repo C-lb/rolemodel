@@ -295,15 +295,39 @@ finding on the existing fixtures.
 
 The M2 ratio library's debt expressions gain `revolver`: `debt_to_equity`,
 `net_debt_to_ebitda`, and every other expression that currently sums `short_term_debt` and
-`long_term_debt`. Historical results are unchanged because the term is always absent there,
-but a forecast that has drawn a revolver would otherwise show leverage that quietly
-excludes its own borrowing.
+`long_term_debt`. A forecast that has drawn a revolver would otherwise show leverage that
+quietly excludes its own borrowing.
+
+**Corrected during implementation.** This section originally claimed historical results were
+unchanged because the term is always absent there. That was wrong. An absent identifier does
+not drop out of a sum in the M2 evaluator; it makes the whole ratio `unavailable`. Adding
+`revolver` to the debt expressions would therefore have flipped every historical debt ratio
+from `ok` to `unavailable`.
+
+The fix is a `absentMeansZero` flag on `LineItemDef`, set on `revolver` alone: a line item the
+extractor can never emit, whose absence means the concept does not apply rather than that
+extraction missed it. The flag lives on the taxonomy entry, not in a list beside the ratio
+library, so the property is declared where the line item is and a key that can legitimately be
+absent-because-unextracted cannot be added to it by accident. The averaging path skips such a
+key rather than treating the asserted zero as a fallback, which would otherwise stamp a
+spurious `averaging_fallback` note on every averaged debt ratio.
 
 ## 7. Ratios over forecast periods
 
-`computeRatios` already takes a period list and a value resolver, so the ratios view gains
-forecast columns by being handed the extended period list and a resolver that reads the
-active scenario's forecast values. No change to the computation engine.
+`computeRatios` takes a `WorkspaceView`, not a period list and a resolver. The ratios view
+therefore gains forecast columns through a forecast layer on `buildWorkspace`:
+`forecast?: { periods: string[]; valueAt: ValueLookup }`. A cell whose period is in the layer
+resolves from it and reports `source: "forecast"`, with no provenance, no extracted value and
+no confidence. An override never shadows a forecast cell.
+
+Threading the forecast through the workspace rather than around it means ratios over forecast
+periods, the sensitivity output metric, and the non-editable forecast statement all fall out of
+the seam M1 already built. The computation engine changes only for the `absentMeansZero` rule
+in §6.
+
+M1's validation gate does not run over forecast periods. Its balance-sheet, cash-flow-tie and
+subtotal checks describe extracted data; a computed column has the forecast engine's own
+`forecast_*` findings instead.
 
 Two constraints:
 
