@@ -5,3 +5,5 @@ data/
 !.env.example
 .superpowers/
 tsconfig.tsbuildinfo
+data-e2e/
+test-results/

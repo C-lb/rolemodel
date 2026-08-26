@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { DndContext, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/core";
+import {
+  DndContext, KeyboardSensor, PointerSensor, useDraggable, useDroppable, useSensor, useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
 import { TAXONOMY, type StatementKind } from "@/model/taxonomy";
 import { RATIOS } from "@/model/ratios/library";
 import { parseExpression } from "@/model/ratios/expression";
@@ -87,6 +90,14 @@ export function RatioBuilder({ onPreview, onSave, onCancel, saveError, initial }
 
   const { setNodeRef, isOver } = useDroppable({ id: DROP_TARGET });
 
+  // A drag needs a few pixels of travel before it starts. Without the constraint dnd-kit
+  // claims the pointer on press and the chip's own click never fires, which silently
+  // breaks the button path that makes this usable without a pointer at all.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor),
+  );
+
   const parsed = useMemo(() => parseExpression(expression), [expression]);
   const preview = useMemo(
     () => (parsed.ok ? onPreview(expression) : []),
@@ -108,7 +119,7 @@ export function RatioBuilder({ onPreview, onSave, onCancel, saveError, initial }
   const missing = [...new Set(preview.flatMap((period) => period.missing))];
 
   return (
-    <DndContext onDragEnd={handleDragEnd}>
+    <DndContext id="ratio-builder" sensors={sensors} onDragEnd={handleDragEnd}>
       <section className="flex flex-col gap-4 rounded-2xl border border-white/[0.06] bg-neutral-900/60 p-4">
         <div className="min-w-0">
           <h2 className="text-sm font-medium leading-snug text-neutral-200">
