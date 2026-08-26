@@ -4,7 +4,8 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as schema from "@/db/schema";
 import { migrate } from "@/db/client";
 import { MissingApiKeyError } from "@/extract/client";
-import { ingestAndExtract, loadWorkspace, setOverride, type Deps } from "./documents";
+import { INGEST_ERROR_CODES } from "@/ingest";
+import { ingestAndExtract, loadWorkspace, setOverride, REMEDIATION, type Deps } from "./documents";
 import { remapFact } from "./remap";
 
 function deps(call: Deps["call"]) {
@@ -229,5 +230,25 @@ describe("overrides", () => {
     const ws = await loadWorkspace(d, wsId);
     expect(ws.cell("total_assets", "FY2024").value).toBe(1000);
     expect(ws.cell("total_assets", "FY2024").source).toBe("extracted");
+  });
+});
+
+describe("remediation copy", () => {
+  it("has an entry for every ingest error code", () => {
+    // `unreadable` is also the fallback for any non-IngestError, so a gap here
+    // means the most likely ingest failure gets advice that cannot work.
+    const missing = INGEST_ERROR_CODES.filter((code) => !REMEDIATION[code]);
+    expect(missing).toEqual([]);
+  });
+
+  it("has an entry for every code ingestAndExtract can return", () => {
+    // Codes raised past ingest: the extract client's own, plus this module's.
+    const others = ["missing_api_key", "refused", "truncated", "extraction_failed", "storage_failed", "db_error"];
+    expect(others.filter((code) => !REMEDIATION[code])).toEqual([]);
+  });
+
+  it("has no empty entries", () => {
+    const empty = Object.entries(REMEDIATION).filter(([, v]) => v.trim().length === 0).map(([k]) => k);
+    expect(empty).toEqual([]);
   });
 });

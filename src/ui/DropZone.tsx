@@ -40,7 +40,7 @@ export function DropZone({ onFile, busy }: Props) {
     >
       <Tooltip label={tooltip("control.upload")}>
         <p className="max-w-[38ch] text-sm leading-relaxed text-neutral-400">
-          Drop a 10-K, 10-Q, case PDF or Excel workbook here
+          Drop a 10-K, 10-Q, case PDF, Excel workbook or CSV here
         </p>
       </Tooltip>
       <button
@@ -64,7 +64,7 @@ export function DropZone({ onFile, busy }: Props) {
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf,.xlsx,.xls,.xlsm"
+        accept=".pdf,.xlsx,.xlsm,.csv"
         disabled={busy}
         className="sr-only"
         onChange={(e) => {

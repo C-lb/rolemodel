@@ -27,8 +27,15 @@ export type ActionResult<T> =
 const GENERIC_REMEDIATION =
   "Try the upload again. If it keeps failing, check the terminal running the app for the full error.";
 
-const REMEDIATION: Record<string, string> = {
-  unsupported_type: "Upload a PDF (.pdf) or an Excel workbook (.xlsx, .xls, .xlsm).",
+/**
+ * What the user should do about each failure. Exported so a test can assert every
+ * `IngestErrorCode` has an entry: a code with no remediation falls back to "try the
+ * upload again", which is advice that cannot work for a structurally broken file.
+ */
+export const REMEDIATION: Record<string, string> = {
+  unsupported_type: "Upload a PDF (.pdf), an Excel workbook (.xlsx, .xlsm) or a CSV (.csv).",
+  unreadable: "The file is damaged or is not really the format its extension claims. Open it in the application that produced it and re-save or re-export a fresh copy, then upload that. A part-finished download fails this way too — download it again.",
+  extraction_failed: "Re-upload just the pages holding the statements. If it fails again, the document may not contain financial statements the extractor recognises; check the terminal running the app for the per-section errors.",
   too_large: "Split the document, or export just the statement pages and upload those.",
   encrypted_pdf: "Open the PDF, remove the password, save a copy and upload that.",
   no_text_layer: "Run OCR over the PDF first, or retype the statements into a spreadsheet.",

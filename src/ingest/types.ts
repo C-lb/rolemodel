@@ -18,13 +18,20 @@ export interface IngestedDocument {
   sheets?: SheetGrid[];
 }
 
-export type IngestErrorCode =
-  | "unsupported_type"
-  | "too_large"
-  | "encrypted_pdf"
-  | "no_text_layer"
-  | "empty_workbook"
-  | "unreadable";
+/**
+ * Single source of truth for the failures ingest can report. Every code here must
+ * carry remediation copy the user can act on — asserted by a test in `src/server`.
+ */
+export const INGEST_ERROR_CODES = [
+  "unsupported_type",
+  "too_large",
+  "encrypted_pdf",
+  "no_text_layer",
+  "empty_workbook",
+  "unreadable",
+] as const;
+
+export type IngestErrorCode = (typeof INGEST_ERROR_CODES)[number];
 
 export class IngestError extends Error {
   constructor(readonly code: IngestErrorCode, message: string) {

@@ -1,7 +1,11 @@
+import { Readable } from "node:stream";
 import ExcelJS from "exceljs";
 import { IngestError, type SheetGrid } from "./types";
 
 type CellValue = string | number | null;
+
+/** A CSV carries no sheet name, but provenance shows one, so give it a truthful stand-in. */
+const CSV_SHEET_NAME = "CSV";
 
 function normaliseCell(value: ExcelJS.CellValue): CellValue {
   if (value === null || value === undefined) return null;
@@ -34,6 +38,27 @@ export async function readSpreadsheet(bytes: Buffer): Promise<SheetGrid[]> {
     throw new IngestError("unreadable", `Could not read the workbook: ${(cause as Error).message}`);
   }
 
+  return gridsFrom(wb);
+}
+
+/**
+ * A CSV is one sheet with no name of its own, read into the same `SheetGrid`
+ * shape as a workbook so nothing downstream needs to know which it came from.
+ */
+export async function readCsv(bytes: Buffer): Promise<SheetGrid[]> {
+  const wb = new ExcelJS.Workbook();
+  try {
+    const sheet = await wb.csv.read(Readable.from(bytes));
+    sheet.name = CSV_SHEET_NAME;
+  } catch (cause) {
+    throw new IngestError("unreadable", `Could not read the CSV: ${(cause as Error).message}`);
+  }
+
+  return gridsFrom(wb);
+}
+
+/** Every sheet of a loaded workbook as a rectangular grid, blank sheets dropped. */
+function gridsFrom(wb: ExcelJS.Workbook): SheetGrid[] {
   const grids: SheetGrid[] = [];
   wb.eachSheet((ws) => {
     const rows: CellValue[][] = [];
