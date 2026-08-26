@@ -50,7 +50,16 @@ export function EditableCell({ cell, onCommit, onReset, onInspect }: Props) {
     pendingInspect.current = null;
   }
 
+  // Forecast cells are not overridable — that is the invariant the whole forecast
+  // layer rests on (`workspace.ts`: a forecast cell resolves from the layer before an
+  // override is even consulted, so a saved override on a forecast period would be
+  // silently discarded on the next build). The edit surface for a forecast number is
+  // its driver, not the cell, so there is no edit affordance here at all: not a
+  // disabled input a user could still try to type into, but no editor to open.
+  const editable = cell.source !== "forecast";
+
   function startEditing() {
+    if (!editable) return;
     cancelPendingInspect();
     settled.current = false;
     setDraft(cell.value === undefined ? "" : String(cell.value));

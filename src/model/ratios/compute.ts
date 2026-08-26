@@ -1,7 +1,7 @@
 import { lineItem, type StatementKind } from "../taxonomy";
 import { sortPeriodsMostRecentFirst, isImmediatePredecessor } from "../periods";
 import type { Cell, WorkspaceView } from "../workspace";
-import { MAGNITUDE_KEYS, RATIOS, ZERO_IF_ABSENT_KEYS } from "./library";
+import { MAGNITUDE_KEYS, RATIOS } from "./library";
 import { parseExpression, identifiers, evaluate, type Node } from "./expression";
 import type { AveragingMode, RatioDef, RatioDirection, RatioFamily, RatioUnit } from "./types";
 
@@ -186,7 +186,7 @@ function resolveLineItem(context: ResolutionContext, name: string): number | und
   const cell = context.workspace.cell(name, context.period);
   const stored = cell.value;
   const magnitude = MAGNITUDE_KEYS.includes(name);
-  const zeroIfAbsent = stored === undefined && ZERO_IF_ABSENT_KEYS.includes(name);
+  const zeroIfAbsent = stored === undefined && lineItem(name)?.absentMeansZero === true;
 
   let used = zeroIfAbsent ? 0 : stored === undefined ? undefined : magnitude ? Math.abs(stored) : stored;
   let averaged = false;

@@ -67,9 +67,13 @@ export function buildWorkspace(input: WorkspaceInput): WorkspaceView {
   const forecastPeriodSet = new Set(forecast?.periods ?? []);
 
   // Most recent first, forecast keys included, through the one ordering rule the rest
-  // of the codebase already relies on — never a concatenation of the two lists.
+  // of the codebase already relies on — never a concatenation of the two lists. A
+  // `Set` union, not a concatenation, also protects against a key present in both
+  // lists producing two identical columns; that should never happen (forecast periods
+  // are always strictly beyond the historical horizon), but a caller bug here should
+  // collapse to one column rather than silently double a period in the view.
   const periods = forecastPeriodSet.size > 0
-    ? sortPeriodsMostRecentFirst([...input.periods, ...forecastPeriodSet])
+    ? sortPeriodsMostRecentFirst([...new Set([...input.periods, ...forecastPeriodSet])])
     : input.periods;
 
   function cell(canonicalKey: string, periodKey: string): Cell {

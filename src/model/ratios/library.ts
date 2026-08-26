@@ -8,9 +8,14 @@ const EBITDA = "(operating_income + depreciation_amortisation)";
 /**
  * Includes `revolver` alongside the two historical debt lines so a forecast that has
  * drawn the plug shows leverage that does not quietly exclude its own borrowing.
- * Historical results are unchanged: no historical document ever produces a `revolver`
- * fact, so this term is always absent (undefined, dropped from the sum) in every
- * historical period. This does not move M2's numbers.
+ *
+ * Historical results are unchanged, but not because an absent identifier is "dropped
+ * from the sum" — the expression evaluator's normal rule is the opposite: any missing
+ * identifier makes the whole ratio `unavailable`. `revolver` is exempted from that rule
+ * because `taxonomy.ts` marks it `absentMeansZero: true`, which `resolveLineItem` in
+ * `ratios/compute.ts` reads to resolve a genuinely absent value as zero. No historical
+ * document ever produces a `revolver` fact, so that zero is what every historical
+ * period gets, and this does not move M2's numbers.
  */
 const TOTAL_DEBT = "(short_term_debt + long_term_debt + revolver)";
 
@@ -30,18 +35,6 @@ export const MAGNITUDE_KEYS: readonly string[] = [
   "operating_expenses",
   "dividends_paid",
 ];
-
-/**
- * Line items that read as zero, not as missing, when a period has no value for them.
- *
- * Every other identifier's absence makes a ratio `unavailable`, on the view that a
- * genuinely missing input should say so rather than guess. `revolver` is different: no
- * historical document will ever report it, so treating its absence as "missing data"
- * would make every debt ratio unavailable for every historical period the moment the
- * line item existed. An absent revolver means "no revolver drawn", which is zero, the
- * same reading `validate()`'s subtotal check already gives an absent component.
- */
-export const ZERO_IF_ABSENT_KEYS: readonly string[] = ["revolver"];
 
 export const RATIOS: readonly RatioDef[] = [
   // ---- Liquidity ----

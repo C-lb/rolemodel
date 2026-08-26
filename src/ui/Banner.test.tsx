@@ -34,6 +34,15 @@ describe("Banner", () => {
   it("renders an info banner with its own tone, not styled as a failure", () => {
     render(<Banner severity="info" title="t" message="m" remediation="r" />);
     const status = screen.getByRole("status");
+    // Positive: info gets its own colour and its own icon shape (a filled circle with
+    // a dot above a line), not warning's triangle or blocking's line-over-dot.
+    expect(status.className).toContain("slate");
+    expect(status.querySelector("path")).toBeNull();
+    const lines = status.querySelectorAll("svg > line");
+    expect(lines).toHaveLength(2);
+    expect(lines[0].getAttribute("y1")).toBe("11");
+    expect(lines[1].getAttribute("y1")).toBe("7.5");
+    // Negative, kept as a cheap extra check: it must not also carry the other tones' colours.
     expect(status.className).not.toContain("red");
     expect(status.className).not.toContain("amber");
   });

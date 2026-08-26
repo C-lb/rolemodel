@@ -357,7 +357,10 @@ export function WorkspaceScreen({
                 title={f.message}
                 titleHelp={tooltip(`finding.${f.code}`)}
                 remediation={f.remediation}
-                onDismiss={f.severity === "warning"
+                // Only a blocking finding is undismissable — it means the workspace
+                // is not safe to read as numbers. Warning and info are both, by
+                // definition, things the user may act on and move past.
+                onDismiss={f.severity !== "blocking"
                   ? () => setDismissed((prev) => new Set(prev).add(findingId(f)))
                   : undefined}
               />

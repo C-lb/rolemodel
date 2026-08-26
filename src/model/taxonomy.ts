@@ -8,6 +8,17 @@ export interface LineItemDef {
   order: number;
   parentKey: string | null;
   isSubtotal: boolean;
+  /**
+   * True only for a key the extractor can never emit, because it names a forecast
+   * construct rather than anything a historical document reports. The ratio engine
+   * reads this to resolve a genuinely absent value as zero rather than "unavailable" —
+   * see `resolveLineItem` in `ratios/compute.ts`. Deliberately on `LineItemDef` rather
+   * than a standalone list: a bare list of keys would let a future line item that CAN
+   * legitimately be absent-because-unextracted get appended to it, at which point a
+   * missing figure would silently read as zero and the ratio would report `ok` with a
+   * wrong number. Omitted (falsy) on every other key.
+   */
+  absentMeansZero?: boolean;
 }
 
 export const UNMAPPED_KEY = "unmapped";
@@ -73,7 +84,8 @@ export const TAXONOMY: readonly LineItemDef[] = [
   { key: "short_term_debt", statement: "balance", label: "Short-term debt", order: 440, parentKey: "total_current_liabilities", isSubtotal: false,
     definition: "Borrowings and current portion of long-term debt due within a year." },
   { key: "revolver", statement: "balance", label: "Revolver", order: 445, parentKey: "total_current_liabilities", isSubtotal: false,
-    definition: "The forecast's funding plug: drawn to defend the minimum-cash floor and repaid from surplus cash. Always absent in extracted historicals, since no historical document reports a forward-looking plug." },
+    definition: "The forecast's funding plug: drawn to defend the minimum-cash floor and repaid from surplus cash. Always absent in extracted historicals, since no historical document reports a forward-looking plug.",
+    absentMeansZero: true },
   { key: "other_current_liabilities", statement: "balance", label: "Other current liabilities", order: 450, parentKey: "total_current_liabilities", isSubtotal: false,
     definition: "Obligations due within a year not classified elsewhere." },
   { key: "total_current_liabilities", statement: "balance", label: "Total current liabilities", order: 460, parentKey: null, isSubtotal: true,

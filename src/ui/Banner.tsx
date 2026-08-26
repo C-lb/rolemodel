@@ -28,8 +28,10 @@ const TONE = {
   },
   info: {
     role: "status" as const,
-    wrap: "border-sky-900/40 bg-sky-950/20 text-sky-100",
-    icon: "text-sky-400",
+    // Not sky: EditableCell already uses sky for "you edited this figure"
+    // (EditableCell.tsx), and this banner has nothing to do with an override.
+    wrap: "border-slate-700/40 bg-slate-800/30 text-slate-100",
+    icon: "text-slate-400",
   },
 };
 

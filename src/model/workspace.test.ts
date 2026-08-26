@@ -84,11 +84,27 @@ describe("forecast layer", () => {
   }
 
   it("behaves exactly as before when no forecast layer is given", () => {
-    const withoutLayer = buildWorkspace(input());
-    const control = buildWorkspace(input());
-    expect(withoutLayer.periods).toEqual(control.periods);
-    expect(withoutLayer.cell("revenue", "FY2024")).toEqual(control.cell("revenue", "FY2024"));
-    expect(withoutLayer.findings).toEqual(control.findings);
+    const ws = buildWorkspace(input());
+    expect(ws.periods).toEqual(["FY2024"]);
+    expect(ws.cell("revenue", "FY2024")).toEqual({
+      canonicalKey: "revenue",
+      periodKey: "FY2024",
+      value: 1000,
+      source: "extracted",
+      extractedValue: 1000,
+      confidence: 0.9,
+      provenance: prov,
+    });
+    expect(ws.findings.map((f) => f.code).sort()).toEqual(["missing_statement", "missing_statement"]);
+    expect(ws.findings.every((f) => f.severity === "warning")).toBe(true);
+  });
+
+  it("dedupes rather than duplicating a period key present in both lists", () => {
+    const ws = buildWorkspace(input({
+      periods: ["FY2024"],
+      forecast: { periods: ["FY2024", "FY2025"], valueAt: forecastValueAt({}) },
+    }));
+    expect(ws.periods).toEqual(["FY2025", "FY2024"]);
   });
 
   it("includes the forecast keys in periods, sorted most recent first", () => {

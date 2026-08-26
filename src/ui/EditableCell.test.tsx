@@ -148,4 +148,18 @@ describe("EditableCell", () => {
     fireEvent.doubleClick(screen.getByText("(2,500)"));
     expect(screen.getByRole<HTMLInputElement>("textbox").value).toBe("-2500");
   });
+
+  it("refuses to open an editor on a forecast cell, on double click or Enter", () => {
+    renderCell({ cell: cell({ source: "forecast", extractedValue: undefined, confidence: undefined }) });
+    const figure = screen.getByText("1,000");
+    fireEvent.doubleClick(figure);
+    expect(screen.queryByRole("textbox")).toBeNull();
+    fireEvent.keyDown(figure, { key: "Enter" });
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("offers no reset control on a forecast cell", () => {
+    renderCell({ cell: cell({ source: "forecast", extractedValue: undefined, confidence: undefined }) });
+    expect(screen.queryByLabelText("Reset to extracted value")).toBeNull();
+  });
 });

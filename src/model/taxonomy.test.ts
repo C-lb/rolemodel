@@ -48,4 +48,14 @@ describe("taxonomy", () => {
     expect(revolver!.order).toBeGreaterThan(shortTermDebt.order);
     expect(revolver!.order).toBeLessThan(otherCurrentLiabilities.order);
   });
+
+  it("marks absentMeansZero on revolver only", () => {
+    // Not "the extractor can never emit this key" — nothing in src/extract currently
+    // constrains that (see task-2-report.md). This pins the narrower, genuinely
+    // assertable fact: the escape hatch from the ratio engine's "missing input makes
+    // the ratio unavailable" rule stays a single, deliberate opt-in, not a list that
+    // quietly grows.
+    const flagged = TAXONOMY.filter((i) => i.absentMeansZero === true).map((i) => i.key);
+    expect(flagged).toEqual(["revolver"]);
+  });
 });
