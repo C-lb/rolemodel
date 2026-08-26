@@ -20,11 +20,12 @@ import { RATIO_FAMILIES } from "@/model/ratios/types";
 import { CORE_KEYS } from "@/model/ratios/library";
 import type { AveragingMode, RatioFamily } from "@/model/ratios/types";
 import { computeRatios, dupont, type CustomRatioInput, type RatioPeriodResult, type RatioResult } from "@/model/ratios/compute";
-import { buildWorkspace } from "@/model/workspace";
+import { buildWorkspace, type ExtractedFactLike, type OverrideLike } from "@/model/workspace";
 import { RatioCard, type ReadingState } from "@/ui/RatioCard";
 import { RatioSection } from "@/ui/RatioSection";
 import { RatioBuilder, type RatioDraft } from "@/ui/RatioBuilder";
 import { DupontCard } from "@/ui/DupontCard";
+import { WorkspaceForecast, type ForecastPanelData } from "./WorkspaceForecast";
 import {
   saveOverride, clearOverride, remapLineItem,
   setAveraging, saveRatio, deleteRatio, explainRatio,
@@ -47,9 +48,15 @@ interface Props {
   ratios: RatioResult[];
   customRatios: CustomRatioInput[];
   averagingMode: AveragingMode;
+  /** Absent only in a test that predates the forecast tab; production always supplies it. */
+  forecast?: ForecastPanelData;
 }
 
-type WorkspaceView = "statements" | "ratios";
+type WorkspaceView = "statements" | "ratios" | "forecast";
+
+const EMPTY_FORECAST: ForecastPanelData = {
+  scenarios: [], activeScenarioId: null, horizon: 5, forecastPeriods: [], drivers: [], ok: false, findings: [], cells: [],
+};
 
 const FAMILY_TITLES: Record<RatioFamily, string> = {
   liquidity: "Liquidity",
@@ -85,7 +92,7 @@ const findingId = (f: Finding) => `${f.code}:${f.periodKey}:${f.keys.join(",")}`
 
 export function WorkspaceScreen({
   workspaceId, documentName, periods, findings, statements, unmapped,
-  ratios, customRatios, averagingMode,
+  ratios, customRatios, averagingMode, forecast = EMPTY_FORECAST,
 }: Props) {
   const [inspected, setInspected] = useState<Cell | null>(null);
   const [view, setView] = useState<WorkspaceView>("statements");
@@ -211,9 +218,9 @@ export function WorkspaceScreen({
    * on screen. It is a pure computation over data the client holds, so it needs no round
    * trip, and an expression that resolves to nothing is visible before it is saved.
    */
-  const previewWorkspace = useMemo(() => {
-    const facts = [];
-    const overrides = [];
+  const factsAndOverrides = useMemo(() => {
+    const facts: ExtractedFactLike[] = [];
+    const overrides: OverrideLike[] = [];
     for (const cell of cells.values()) {
       if (cell.extractedValue !== undefined) {
         facts.push({
@@ -231,8 +238,38 @@ export function WorkspaceScreen({
         overrides.push({ canonicalKey: cell.canonicalKey, periodKey: cell.periodKey, value: cell.value });
       }
     }
-    return buildWorkspace({ periods, facts, overrides });
-  }, [cells, periods]);
+    return { facts, overrides };
+  }, [cells]);
+
+  const previewWorkspace = useMemo(
+    () => buildWorkspace({ periods, ...factsAndOverrides }),
+    [factsAndOverrides, periods],
+  );
+
+  // Ratios gain forecast columns through the same workspace forecast layer the model
+  // already builds (`buildWorkspace`'s `forecast` input) - never a second path (spec
+  // §7). The layer only exists while a scenario's forecast has actually succeeded;
+  // a blocked forecast leaves the Ratios tab exactly as it was before this task.
+  const hasForecast = forecast.activeScenarioId !== null && forecast.ok && forecast.forecastPeriods.length > 0;
+  const forecastValueIndex = useMemo(
+    () => new Map(forecast.cells.map((c) => [cellId(c.canonicalKey, c.periodKey), c.value])),
+    [forecast.cells],
+  );
+  const ratiosWorkspace = useMemo(() => {
+    if (!hasForecast) return previewWorkspace;
+    return buildWorkspace({
+      periods,
+      ...factsAndOverrides,
+      forecast: {
+        periods: forecast.forecastPeriods,
+        valueAt: (key, period) => forecastValueIndex.get(cellId(key, period)),
+      },
+    });
+  }, [hasForecast, previewWorkspace, periods, factsAndOverrides, forecast.forecastPeriods, forecastValueIndex]);
+  const displayRatios = useMemo(
+    () => (hasForecast ? computeRatios({ workspace: ratiosWorkspace, mode: averagingMode, custom: customRatios }) : ratios),
+    [hasForecast, ratiosWorkspace, averagingMode, customRatios, ratios],
+  );
 
   function previewExpression(expression: string): RatioPeriodResult[] {
     const computed = computeRatios({
@@ -320,10 +357,10 @@ export function WorkspaceScreen({
   }
 
   const visible = findings.filter((f) => !dismissed.has(findingId(f)));
-  const builtIn = ratios.filter((r) => !r.isCustom);
+  const builtIn = displayRatios.filter((r) => !r.isCustom);
   const shown = coreOnly ? builtIn.filter((r) => CORE_KEYS.includes(r.key)) : builtIn;
-  const custom = ratios.filter((r) => r.isCustom);
-  const decomposition = dupont(ratios, periods[0] ?? "");
+  const custom = displayRatios.filter((r) => r.isCustom);
+  const decomposition = dupont(displayRatios, periods[0] ?? "");
   const hasFigures = STATEMENT_TITLES.some(([kind]) =>
     statements[kind].some((row) => row.cells.some((c) => c.value !== undefined)),
   );
@@ -383,7 +420,7 @@ export function WorkspaceScreen({
         )}
 
         <div role="tablist" aria-label="Workspace views" className="flex flex-wrap gap-2">
-          {([["statements", "Statements"], ["ratios", "Ratios"]] as const).map(([id, label]) => (
+          {([["statements", "Statements"], ["ratios", "Ratios"], ["forecast", "Forecast"]] as const).map(([id, label]) => (
             <button
               key={id}
               type="button"
@@ -401,7 +438,15 @@ export function WorkspaceScreen({
           ))}
         </div>
 
-        {view === "ratios" ? (
+        {view === "forecast" ? (
+          <WorkspaceForecast
+            workspaceId={workspaceId}
+            historicalPeriods={periods}
+            statements={statements}
+            customRatios={customRatios}
+            forecast={forecast}
+          />
+        ) : view === "ratios" ? (
           <div className="flex flex-col gap-6">
             <div className="flex flex-wrap items-center gap-2">
               <Tooltip label={tooltip("control.ratio_focus")}>
@@ -480,6 +525,7 @@ export function WorkspaceScreen({
                       reading={readings[result.key]}
                       onExplain={explain}
                       onShowProvenance={inspectComponent}
+                      forecastExcluded={hasForecast}
                     />
                   ))}
                 </RatioSection>
@@ -495,6 +541,7 @@ export function WorkspaceScreen({
                   onExplain={explain}
                   onShowProvenance={inspectComponent}
                   onDelete={removeRatio}
+                  forecastExcluded={hasForecast}
                 />
               ))}
             </RatioSection>

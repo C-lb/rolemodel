@@ -1,14 +1,30 @@
 "use server";
 
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import * as schema from "@/db/schema";
 import { realDeps } from "@/server/deps";
 import { ingestAndExtract, setOverride, type ActionResult } from "@/server/documents";
 import { remapFact } from "@/server/remap";
 import { saveCustomRatio, deleteCustomRatio, setAveragingMode } from "@/server/ratios";
+import {
+  createScenario,
+  renameScenario,
+  duplicateScenario,
+  deleteScenario,
+  setActiveScenario,
+  saveDriver,
+  fillRight,
+  setForecastHorizon,
+} from "@/server/scenarios";
 import { explainRatio as explain, type RatioReading } from "@/server/interpretation";
 import { computeRatios, type RatioResult } from "@/model/ratios/compute";
 import { loadWorkspace } from "@/server/documents";
 import type { AveragingMode } from "@/model/ratios/types";
+import type { ForecastInput } from "@/model/forecast/engine";
+import type { DriverBasis } from "@/model/forecast/seed";
+import { sensitivityGrid, type Axis, type SensitivityOutput, type SensitivityResult } from "@/model/forecast/sensitivity";
+import { extendAnnualPeriods, sortPeriodsMostRecentFirst } from "@/model/periods";
 
 const DB_ERROR_REMEDIATION =
   "Try again. If it keeps happening, check the terminal running the app for the full database error.";
@@ -121,4 +137,116 @@ export async function explainRatio(
   }
 
   return explain(deps, workspaceId, result, ws.averagingMode);
+}
+
+export async function createScenarioAction(
+  workspaceId: string, name: string,
+): Promise<ActionResult<{ scenarioId: string }>> {
+  const result = await createScenario(realDeps(), workspaceId, name);
+  if (result.ok) revalidatePath(`/w/${workspaceId}`);
+  return result;
+}
+
+export async function renameScenarioAction(
+  workspaceId: string, scenarioId: string, name: string,
+): Promise<ActionResult<null>> {
+  const result = await renameScenario(realDeps(), workspaceId, scenarioId, name);
+  if (result.ok) revalidatePath(`/w/${workspaceId}`);
+  return result;
+}
+
+export async function duplicateScenarioAction(
+  workspaceId: string, scenarioId: string, name: string,
+): Promise<ActionResult<{ scenarioId: string }>> {
+  const result = await duplicateScenario(realDeps(), workspaceId, scenarioId, name);
+  if (result.ok) revalidatePath(`/w/${workspaceId}`);
+  return result;
+}
+
+export async function deleteScenarioAction(
+  workspaceId: string, scenarioId: string,
+): Promise<ActionResult<null>> {
+  const result = await deleteScenario(realDeps(), workspaceId, scenarioId);
+  if (result.ok) revalidatePath(`/w/${workspaceId}`);
+  return result;
+}
+
+export async function selectScenarioAction(
+  workspaceId: string, scenarioId: string,
+): Promise<ActionResult<null>> {
+  const result = await setActiveScenario(realDeps(), workspaceId, scenarioId);
+  if (result.ok) revalidatePath(`/w/${workspaceId}`);
+  return result;
+}
+
+export async function saveDriverAction(
+  workspaceId: string, scenarioId: string, key: string, periodKey: string, value: number,
+): Promise<ActionResult<null>> {
+  const result = await saveDriver(realDeps(), scenarioId, key, periodKey, value);
+  if (result.ok) revalidatePath(`/w/${workspaceId}`);
+  return result;
+}
+
+export async function fillRightAction(
+  workspaceId: string, scenarioId: string, key: string, fromPeriod: string,
+): Promise<ActionResult<null>> {
+  const result = await fillRight(realDeps(), scenarioId, key, fromPeriod);
+  if (result.ok) revalidatePath(`/w/${workspaceId}`);
+  return result;
+}
+
+export async function setHorizonAction(
+  workspaceId: string, horizon: number,
+): Promise<ActionResult<null>> {
+  const result = await setForecastHorizon(realDeps(), workspaceId, horizon);
+  if (result.ok) revalidatePath(`/w/${workspaceId}`);
+  return result;
+}
+
+/**
+ * Runs the two-variable sensitivity grid for a scenario. Read-only: nothing is
+ * persisted, so there is no `revalidatePath`. The `ForecastInput` is assembled the
+ * same way `assembleForecast` (`server/forecast.ts`) builds one, duplicated rather
+ * than imported because that function also runs the forecast, which this does not need.
+ */
+export async function runSensitivityAction(
+  workspaceId: string,
+  scenarioId: string,
+  rowAxis: Axis,
+  columnAxis: Axis,
+  output: SensitivityOutput,
+): Promise<ActionResult<SensitivityResult>> {
+  const deps = realDeps();
+  let ws: Awaited<ReturnType<typeof loadWorkspace>>;
+  try {
+    ws = await loadWorkspace(deps, workspaceId);
+  } catch (error) {
+    return { ok: false, code: "db_error", message: (error as Error).message, remediation: DB_ERROR_REMEDIATION };
+  }
+
+  const [workspaceRow] = deps.db.select().from(schema.workspaces).where(eq(schema.workspaces.id, workspaceId)).all();
+  if (!workspaceRow) {
+    return { ok: false, code: "not_found", message: "No such workspace.", remediation: "Reload the page and try again." };
+  }
+
+  const historicalPeriods = ws.periods;
+  const latest = sortPeriodsMostRecentFirst(historicalPeriods)[0];
+  const forecastPeriods = latest !== undefined ? extendAnnualPeriods(latest, workspaceRow.forecastHorizon) : [];
+
+  const driverRows = deps.db.select().from(schema.drivers).where(eq(schema.drivers.scenarioId, scenarioId)).all();
+  const driverIndex = new Map(driverRows.map((r) => [`${r.key}::${r.periodKey}`, r]));
+
+  const input: ForecastInput = {
+    historicalPeriods,
+    forecastPeriods,
+    valueAt: (key, period) => ws.cell(key, period).value,
+    driverAt: (key, period) => driverIndex.get(`${key}::${period}`)?.value,
+    driverBasisAt: (key, period) => {
+      const basis = driverIndex.get(`${key}::${period}`)?.basis;
+      return basis === "derived" || basis === "default" ? (basis as DriverBasis) : undefined;
+    },
+  };
+
+  const result = sensitivityGrid(input, rowAxis, columnAxis, output, ws.customRatios, ws.averagingMode);
+  return { ok: true, data: result };
 }

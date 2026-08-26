@@ -26,6 +26,21 @@ const PROVENANCE = {
   signFlipped: false,
 };
 
+/**
+ * The ratios fixture never breaks `total_equity` into its components, because no ratio
+ * needs them. The forecast engine does: `common_stock_apic` and `retained_earnings` are
+ * both in `REQUIRED_OPENING_KEYS` (`model/forecast/engine.ts`), so a workspace built
+ * from the fixture as-is is annual but NOT forecastable — it hits `forecast_missing_base`
+ * before a single forecast cell is computed. This breakdown is added on top, split so it
+ * sums to each period's existing `total_equity` exactly (no `subtotal_mismatch`), which
+ * is what makes this the one seeded workspace the forecast e2e suite needs.
+ */
+const EQUITY_BREAKDOWN: Record<string, { common_stock_apic: number; retained_earnings: number }> = {
+  FY2022: { common_stock_apic: 3000, retained_earnings: 2000 }, // sums to 5,000
+  FY2023: { common_stock_apic: 3000, retained_earnings: 3000 }, // sums to 6,000
+  FY2024: { common_stock_apic: 3000, retained_earnings: 4000 }, // sums to 7,000
+};
+
 export function seed(dataDir: string): void {
   fs.mkdirSync(dataDir, { recursive: true });
   const file = path.join(dataDir, "finmodel.db");
@@ -46,9 +61,9 @@ export function seed(dataDir: string): void {
   }).run();
 
   const rows: [string, Record<string, number>][] = [
-    ["FY2024", FY2024],
-    ["FY2023", FY2023],
-    ["FY2022", FY2022],
+    ["FY2024", { ...FY2024, ...EQUITY_BREAKDOWN.FY2024 }],
+    ["FY2023", { ...FY2023, ...EQUITY_BREAKDOWN.FY2023 }],
+    ["FY2022", { ...FY2022, ...EQUITY_BREAKDOWN.FY2022 }],
   ];
 
   let id = 0;

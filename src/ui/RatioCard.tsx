@@ -23,6 +23,13 @@ interface Props {
   onShowProvenance: (canonicalKey: string, periodKey: string) => void;
   onDelete?: (key: string) => void;
   reading?: ReadingState;
+  /**
+   * True whenever this card's periods include a forecast column. The generated
+   * reading stays historical-only in M3 (spec §7: the prompt is grounded in observed
+   * numbers, and a forecast is not an observation), so the card says so rather than
+   * leaving the reader to guess whether the forecast columns were considered.
+   */
+  forecastExcluded?: boolean;
 }
 
 const DIRECTION_COPY: Record<RatioResult["direction"], string> = {
@@ -112,7 +119,9 @@ function ComponentRow({
   );
 }
 
-export function RatioCard({ result, onExplain, onShowProvenance, onDelete, reading = { state: "idle" } }: Props) {
+export function RatioCard({
+  result, onExplain, onShowProvenance, onDelete, reading = { state: "idle" }, forecastExcluded = false,
+}: Props) {
   const [showInputs, setShowInputs] = useState(false);
 
   // Results arrive most recent first, which is how the figures are read. The trend line
@@ -216,6 +225,12 @@ export function RatioCard({ result, onExplain, onShowProvenance, onDelete, readi
       )}
       {reading.state === "loading" && (
         <p className="text-xs leading-relaxed text-neutral-500">Reading the numbers</p>
+      )}
+
+      {forecastExcluded && (
+        <p className="text-xs leading-relaxed text-neutral-500">
+          Excludes forecast periods. Grounded in observed history only.
+        </p>
       )}
 
       <div className="flex flex-wrap items-center gap-2">
