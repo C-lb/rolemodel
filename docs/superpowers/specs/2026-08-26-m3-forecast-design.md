@@ -137,6 +137,23 @@ are: growth 0.03, tax rate 0.21, `interest_rate_cash` 0.02, `dividend_payout` 0,
 Seeded values are written once, at scenario creation. They are ordinary editable rows from
 then on. Re-seeding is an explicit user action that overwrites, never a silent refresh.
 
+**The re-seed action, and what happens until it is used.** Amended at the final review, which
+found the promise above had no implementation. Driver rows are written against the forecast
+periods the then-latest historical year implied, and section 5's period list is recomputed from the
+CURRENT latest, so uploading a later filing into a workspace that already has scenarios leaves the
+last forecast period with no driver rows at all. The engine fell back to the documented
+constants for every one of them and returned `ok: true`: a rendered forecast, with a zero gross
+margin, and a driver grid showing `0.00%` where the engine had used 0.03.
+
+- `reseedScenario(workspaceId, scenarioId)` re-derives from the current history and overwrites
+  every driver row in the scenario, for the periods the current history implies. It is bound to a
+  button. It does not re-apply section 4.2's Bull and Bear nudges, because there is no privileged
+  flag but `isBase` to read them back off a name (section 2); the control says it overwrites and
+  offers duplicating first.
+- Until it is used, the forecast is REFUSED, not filled. Filling the gap at assembly time is a
+  silent refresh performed once per page load, which this section rules out. The refusal is
+  `forecast_drivers_missing`, blocking, naming the periods.
+
 ### 4.2 Scenario seeding
 
 - **Base** takes the seeded values unchanged.
@@ -333,6 +350,16 @@ deliberately broken engine, for instance one that drops the working-capital delt
 from operations, must make the invariant test fail. A guard that has never been seen to go
 red cannot be trusted.
 
+That check is committed, in `engine.mutation.test.ts`. It applies a textual mutation to
+`engine.ts`'s own source, compiles it in memory with the real dependencies injected, and runs the
+mutant through the real fixtures — so the invariant that goes red is the engine's, not a
+reimplementation of it. Each mutation asserts it actually changed the source, so an edit to
+`engine.ts` that moves the mutated line turns the guard red rather than quietly making it vacuous.
+Three of the four known mutations break articulation. The fourth, depreciation on a base other
+than opening PP&E, provably does not: depreciation is an operating addback, so the extra charge
+adds to cash exactly what it removes from PP&E. The check asserts that blindness explicitly and
+names the dedicated opening-balance test as the guard that does catch it.
+
 ### 5.6 Findings
 
 The engine returns structured findings rather than throwing, matching the `Finding` shape
@@ -346,6 +373,14 @@ M1's validation gate already uses:
 | `forecast_revolver_drawn` | warning | The revolver was drawn in at least one period |
 | `forecast_equity_negative` | warning | Total equity fell below zero |
 | `forecast_driver_default` | info | At least one driver is a fallback constant, not derived |
+| `forecast_drivers_missing` | blocking | A forecast period has no driver rows: the scenario predates the current history (section 4.1) |
+| `forecast_driver_implausible` | blocking | A driver is outside any range the forecast can be computed over |
+
+The last two were added at the final review. `forecast_driver_implausible` exists because
+`revenue_growth: -1e6` and `tax_rate: 1e300` are typeable, and both previously came back as
+`forecast_articulation_broken`, whose remediation reads "This is a defect in the forecast engine,
+not in the assumptions. Report it." It was the assumptions. The bounds are per unit and
+deliberately far outside any real model: 1000 per cent, 3650 days, 1e12 of currency.
 
 A blocking finding means the forecast columns are not shown as numbers. It never means a
 half-populated grid.

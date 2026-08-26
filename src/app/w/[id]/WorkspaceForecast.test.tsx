@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { ToastProvider } from "@/ui/ToastProvider";
 import { WorkspaceScreen } from "./WorkspaceScreen";
 import type { ForecastPanelData } from "./WorkspaceForecast";
@@ -10,6 +10,7 @@ import {
   selectScenarioAction,
   saveDriverAction,
   fillRightAction,
+  reseedScenarioAction,
 } from "@/app/actions";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
@@ -30,6 +31,7 @@ vi.mock("@/app/actions", () => ({
   saveDriverAction: vi.fn(async () => ({ ok: true, data: null })),
   fillRightAction: vi.fn(async () => ({ ok: true, data: null })),
   setHorizonAction: vi.fn(async () => ({ ok: true, data: null })),
+  reseedScenarioAction: vi.fn(async () => ({ ok: true, data: { periods: ["FY2025"] } })),
   runSensitivityAction: vi.fn(async () => ({
     ok: true,
     data: { rows: [0], columns: [0], cells: [[{ state: "ok", value: 1, isBase: true }]] },
@@ -39,6 +41,7 @@ vi.mock("@/app/actions", () => ({
 const selectScenario = vi.mocked(selectScenarioAction);
 const saveDriver = vi.mocked(saveDriverAction);
 const fillRight = vi.mocked(fillRightAction);
+const reseedScenario = vi.mocked(reseedScenarioAction);
 
 /** Two scenarios, each forecasting one period (FY2025) from the shared fixture history. */
 function baseForecast(): ForecastPanelData {
@@ -344,5 +347,126 @@ describe("tooltip coverage on this task's new controls", () => {
     const container = setup.closest("div");
     if (!container) throw new Error("no empty-state container found");
     expectEveryControlHasATooltip(container);
+  });
+});
+
+/**
+ * The three non-blocking findings the engine computes and the screen used to drop.
+ * `WorkspaceForecast` read only `findings.find(f => f.severity === "blocking")`, so a
+ * scenario that drew the revolver every year, or drove equity negative, told the user
+ * nothing at all.
+ */
+describe("what the forecast's own findings say", () => {
+  function withFindings(): ForecastPanelData {
+    return {
+      ...baseForecast(),
+      findings: [
+        {
+          code: "forecast_revolver_drawn", severity: "warning", periodKey: "FY2025", keys: ["revolver"],
+          message: "The revolver is drawn to hold cash at the minimum in FY2025.",
+          remediation: "The forecast funds itself with borrowing in those years.",
+        },
+        {
+          code: "forecast_equity_negative", severity: "warning", periodKey: "FY2025", keys: ["total_equity"],
+          message: "Total equity falls below zero in FY2025.",
+          remediation: "Accumulated losses or distributions exceed contributed capital.",
+        },
+        {
+          code: "forecast_driver_default", severity: "info", periodKey: null, keys: ["interest_rate_cash"],
+          message: "One assumption is a fallback constant rather than something derived from history: Interest rate on cash.",
+          remediation: "Review these assumptions before relying on the forecast.",
+        },
+      ],
+    };
+  }
+
+  it("renders every one of them on the forecast tab", () => {
+    renderScreen(withFindings());
+    openForecast();
+    expect(screen.getByText(/The revolver is drawn to hold cash at the minimum in FY2025/)).toBeTruthy();
+    expect(screen.getByText(/Total equity falls below zero in FY2025/)).toBeTruthy();
+    expect(screen.getByText(/One assumption is a fallback constant/)).toBeTruthy();
+  });
+
+  it("lets an info finding be dismissed, which nothing could reach before", () => {
+    renderScreen(withFindings());
+    openForecast();
+    const info = screen.getByText(/One assumption is a fallback constant/).closest("[role]");
+    expect(info).toBeTruthy();
+    const dismiss = within(info as HTMLElement).getByRole("button", { name: "Dismiss" });
+    fireEvent.click(dismiss);
+    expect(screen.queryByText(/One assumption is a fallback constant/)).toBeNull();
+    // Its siblings are untouched.
+    expect(screen.getByText(/Total equity falls below zero in FY2025/)).toBeTruthy();
+  });
+
+  it("does not render a blocking finding twice: the refusal banner is the one that speaks", () => {
+    renderScreen(blockedForecast());
+    openForecast();
+    expect(screen.getAllByText(/not an annual period/)).toHaveLength(1);
+  });
+});
+
+describe("a driver the scenario holds no row for", () => {
+  it("renders as a missing figure, never as a fabricated zero", () => {
+    // The display half of the stale-scenario defect. `value ?? 0` put "0.00%" in the
+    // grid for revenue_growth, tax_rate and interest_rate_cash while the engine had
+    // actually run 0.03, 0.21 and 0.02: the grid showing numbers the forecast did not
+    // use. There is no driver row at all in this fixture.
+    renderScreen({ ...baseForecast(), drivers: [] });
+    openForecast();
+
+    const grid = screen.getByRole("table", { name: /forecast drivers/i });
+    expect(within(grid).queryByText("0.00%")).toBeNull();
+    expect(within(grid).getAllByText("—").length).toBeGreaterThan(0);
+  });
+});
+
+describe("re-seeding a scenario", () => {
+  it("is a button the user presses, and says what it overwrites", async () => {
+    renderScreen(baseForecast());
+    openForecast();
+
+    const button = screen.getByRole("button", { name: "Re-seed drivers" });
+    expect(screen.getByText(/overwrites every driver in this scenario/i)).toBeTruthy();
+
+    fireEvent.click(button);
+    await waitFor(() => expect(reseedScenario).toHaveBeenCalledWith("w1", "s-base"));
+  });
+
+  it("is still reachable when the forecast is refused, which is when it is needed", () => {
+    renderScreen(blockedForecast());
+    openForecast();
+    expect(screen.getByRole("button", { name: "Re-seed drivers" })).toBeTruthy();
+  });
+});
+
+describe("clicking a ratio component that sits in a forecast period", () => {
+  it("declines out loud instead of doing nothing at all", async () => {
+    // `cells` is indexed from the historical statements only, so this lookup misses and
+    // the click used to be a silent no-op. A forecast figure genuinely has no source
+    // document, which is an answer, not a reason to swallow the interaction.
+    renderScreen(baseForecast());
+    openRatios();
+
+    const card = cardFor("Net margin");
+    fireEvent.click(within(card).getByRole("button", { name: "Show inputs" }));
+    const component = within(card).getByRole("button", { name: "Revenue, FY2025" });
+    fireEvent.click(component);
+
+    expect(await screen.findByText(/FY2025 is forecast, so it has no source document/)).toBeTruthy();
+    // And no provenance panel opened behind the toast.
+    expect(screen.queryByText(/Where this figure came from/i)).toBeNull();
+  });
+
+  it("still opens provenance for a historical component", () => {
+    renderScreen(baseForecast());
+    openRatios();
+
+    const card = cardFor("Net margin");
+    fireEvent.click(within(card).getByRole("button", { name: "Show inputs" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Revenue, FY2024" }));
+
+    expect(screen.getByText(/Where this figure came from/i)).toBeTruthy();
   });
 });

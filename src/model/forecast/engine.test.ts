@@ -4,6 +4,7 @@ import {
   TOTAL_ASSETS_PARTS, TOTAL_LIABILITIES_PARTS, type ForecastInput,
 } from "./engine";
 import { TAXONOMY, lineItem, type StatementKind } from "../taxonomy";
+import { DRIVER_KEYS } from "./drivers";
 import {
   EXPECTED_FORECAST,
   EXPECTED_PLUGS,
@@ -247,15 +248,24 @@ describe("runForecast: subtotals and held items", () => {
     //
     // Every parentless subtotal now has a footing, and the completeness assertion below
     // means a new one cannot be added without one.
+    // NO `Math.abs` ANYWHERE HERE. Wrapping each cost child in a magnitude made these
+    // footings blind to the one thing they most need to catch: a sign error on
+    // cost_of_revenue, operating_expenses, interest_expense or income_tax_expense
+    // foots identically either way once the magnitude is taken. Instead, each cost line
+    // is read back into spec 5.1's own convention using the sign THIS fixture's history
+    // printed, which is the same rule the engine emits by. A cost line that comes out
+    // the wrong way round now fails the footing rather than passing it.
     type Lookup = (key: string) => number;
-    const footings: Record<string, (v: Lookup) => number> = {
-      // Income-statement parents SUBTRACT their cost children, which is how a
-      // costs-positive filing prints and how a costs-negative one reads once the
-      // magnitude is taken. The same expression foots under either convention.
-      gross_profit: (v) => v("revenue") - Math.abs(v("cost_of_revenue")),
-      operating_income: (v) => v("gross_profit") - Math.abs(v("operating_expenses")),
-      pretax_income: (v) => v("operating_income") - Math.abs(v("interest_expense")) + v("other_income_expense"),
-      net_income: (v) => v("pretax_income") - Math.abs(v("income_tax_expense")),
+    /** The value as spec 5.1 computes it: costs negative, whichever way they print. */
+    type Cost = (key: string) => number;
+    const footings: Record<string, (v: Lookup, cost: Cost) => number> = {
+      gross_profit: (v, cost) => v("revenue") + cost("cost_of_revenue"),
+      // operating_expenses is a subtotal with no history of its own, so it is footed
+      // from the two children whose printed sign the fixture does define.
+      operating_income: (v, cost) =>
+        v("gross_profit") + cost("research_development") + cost("selling_general_admin"),
+      pretax_income: (v, cost) => v("operating_income") + cost("interest_expense") + v("other_income_expense"),
+      net_income: (v, cost) => v("pretax_income") + cost("income_tax_expense"),
       total_assets: (v) => TOTAL_ASSETS_PARTS.reduce((s, k) => s + v(k), 0),
       total_liabilities: (v) => TOTAL_LIABILITIES_PARTS.reduce((s, k) => s + v(k), 0),
       // The cash-flow statement ADDS signed cash effects, in every convention. This is
@@ -269,17 +279,25 @@ describe("runForecast: subtotals and held items", () => {
       .map((i) => i.key);
     expect([...parentless].sort(), "a parentless subtotal has no footing").toEqual(Object.keys(footings).sort());
 
-    const fixtures: { name: string; input: ForecastInput }[] = [
-      { name: "costs negative", input: fixtureForecastInput() },
-      { name: "costs positive", input: positiveCostForecastInput() },
+    const fixtures: { name: string; input: ForecastInput; history: Row }[] = [
+      { name: "costs negative", input: fixtureForecastInput(), history: historicalRows().FY2024 },
+      { name: "costs positive", input: positiveCostForecastInput(), history: positiveCostRows().FY2024 },
     ];
-    for (const { name, input } of fixtures) {
+    for (const { name, input, history } of fixtures) {
       const result = runForecast(input);
       expect(result.ok).toBe(true);
       for (const period of FORECAST_PERIODS) {
         const v: Lookup = (key) => result.valueAt(key, period) as number;
+        // Read back into the negative convention using the sign the fixture's own
+        // history printed. If the forecast emitted the opposite sign, this returns the
+        // wrong-signed number rather than absorbing the error, and the footing fails.
+        const cost: Cost = (key) => {
+          const printedNegative = history[key] < 0;
+          expect(history[key], `${key} has no sign in the ${name} fixture`).not.toBe(0);
+          return printedNegative ? v(key) : -v(key);
+        };
         for (const [key, foot] of Object.entries(footings)) {
-          expectMoney(v(key), foot(v), `${key} in ${period} (${name})`);
+          expectMoney(v(key), foot(v, cost), `${key} in ${period} (${name})`);
         }
       }
     }
@@ -559,6 +577,53 @@ describe("runForecast: findings", () => {
     expect(codes(run().findings)).not.toContain("forecast_driver_default");
   });
 
+  it("refuses a forecast period the scenario has no drivers for, and names the period", () => {
+    // The engine's half of the stale-scenario defect: a period with no driver rows used
+    // to fall through to DRIVER_DEFAULTS silently, so a forecast nobody's assumptions
+    // produced came back ok.
+    const base = fixtureForecastInput();
+    const result = runForecast({
+      ...base,
+      forecastPeriods: ["FY2025", "FY2026", "FY2027"],
+      driverAt: (key, period) => (period === "FY2027" ? undefined : base.driverAt(key, period)),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.cells).toEqual([]);
+    const finding = result.findings.find((f) => f.code === "forecast_drivers_missing");
+    expect(finding).toBeDefined();
+    expect(finding?.severity).toBe("blocking");
+    expect(finding?.periodKey).toBe("FY2027");
+    expect(finding?.keys).toEqual([...DRIVER_KEYS]);
+  });
+
+  it("blames the assumptions, not the engine, for a driver no forecast can be computed over", () => {
+    // Both values are typeable in the driver grid. Both used to come back as
+    // forecast_articulation_broken, whose remediation tells the user to report an engine
+    // bug. It was the assumptions.
+    const cases: Record<string, number>[] = [{ revenue_growth: -1e6 }, { tax_rate: 1e300 }];
+    for (const drivers of cases) {
+      const result = runForecast(fixtureForecastInput({ drivers }));
+      expect(result.ok).toBe(false);
+      expect(result.cells).toEqual([]);
+      const finding = result.findings.find((f) => f.code === "forecast_driver_implausible");
+      expect(finding, JSON.stringify(drivers)).toBeDefined();
+      expect(finding?.severity).toBe("blocking");
+      expect(finding?.keys).toEqual(Object.keys(drivers));
+      expect(finding?.remediation).not.toMatch(/defect in the forecast engine/);
+      // And the engine-bug finding is not raised alongside it.
+      expect(codes(result.findings)).not.toContain("forecast_articulation_broken");
+    }
+  });
+
+  it("leaves a large but usable driver alone", () => {
+    // The bound has to sit far outside anything a real model uses, or it becomes a
+    // modelling opinion. 900 per cent growth is absurd and still computed.
+    const result = runForecast(fixtureForecastInput({ drivers: { revenue_growth: 9 } }));
+    expect(codes(result.findings)).not.toContain("forecast_driver_implausible");
+    expect(result.ok).toBe(true);
+  });
+
   it("stays silent when no driver basis is supplied at all", () => {
     const result = runForecast(fixtureForecastInput({ omitDriverBasis: true }));
     expect(codes(result.findings)).not.toContain("forecast_driver_default");
@@ -648,8 +713,15 @@ describe("runForecast: hostile input", () => {
   }
 
   it("refuses, rather than renders, when the arithmetic overflows", () => {
-    // The case that proves the guard fires rather than being unreachable.
-    const result = runForecast(fixtureForecastInput({ drivers: { revenue_growth: 1e308 } }));
+    // The case that proves the NaN sweep fires rather than being unreachable. The
+    // overflow comes from the HISTORY, not from a driver: a driver big enough to
+    // overflow is now refused by name as an implausible assumption before the
+    // arithmetic runs, so an out-of-range driver can no longer reach this guard and
+    // would leave it untested if it were still the input used here.
+    const result = runForecast(fixtureForecastInput({
+      ...withOverrides([{ period: "FY2024", key: "revenue", value: 1e308 }]),
+      drivers: { revenue_growth: 9 },
+    }));
     expect(result.ok).toBe(false);
     expect(result.cells).toEqual([]);
     const broken = result.findings.filter((f) => f.code === "forecast_articulation_broken");

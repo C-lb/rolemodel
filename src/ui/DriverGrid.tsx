@@ -16,7 +16,12 @@ export interface DriverSeedInfo {
 
 export interface DriverCellValue {
   periodKey: string;
-  value: number;
+  /**
+   * Absent when this scenario holds no driver row for the period. That happens when
+   * the history gained a year after the scenario was created, and it must render as a
+   * missing figure rather than a zero: a zero here is a number the forecast never used.
+   */
+  value: number | undefined;
   /**
    * Present only when this cell's value still equals what scenario creation seeded it
    * to (Task 8's comparison, not this component's — DriverGrid only renders what it is
@@ -75,7 +80,7 @@ function FillRightIcon() {
  * `confidence` and `provenance` are all genuinely absent for a driver — there is no
  * source document behind it — so `undefined` here isn't a stand-in, it's the truth.
  */
-function driverAsCell(canonicalKey: string, periodKey: string, value: number): Cell {
+function driverAsCell(canonicalKey: string, periodKey: string, value: number | undefined): Cell {
   return {
     canonicalKey,
     periodKey,

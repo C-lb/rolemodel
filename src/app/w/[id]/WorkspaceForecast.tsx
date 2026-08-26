@@ -16,6 +16,7 @@ import { DriverGrid, type DriverRowData } from "@/ui/DriverGrid";
 import { ForecastStatement, type ForecastCellData, type ForecastStatementRow } from "@/ui/ForecastStatement";
 import { SensitivityGrid } from "@/ui/SensitivityGrid";
 import { Banner } from "@/ui/Banner";
+import { FindingList } from "@/ui/FindingList";
 import { Tooltip } from "@/ui/Tooltip";
 import { tooltip } from "@/ui/tooltips";
 import { useToast } from "@/ui/ToastProvider";
@@ -29,6 +30,7 @@ import {
   fillRightAction,
   setHorizonAction,
   runSensitivityAction,
+  reseedScenarioAction,
 } from "@/app/actions";
 
 /** A driver row as read from the database, flattened for the client. */
@@ -229,6 +231,10 @@ export function WorkspaceForecast({
   const toast = useToast();
   const [, startTransition] = useTransition();
   const [saving, setSaving] = useState(false);
+  // The re-seed button's own in-flight flag, so its label reports ITS request rather
+  // than any save the panel happens to have running. Flipped in the same synchronous
+  // continuation as `saving`, never read from `useTransition`'s lagging `isPending`.
+  const [reseeding, setReseeding] = useState(false);
   const [saveFailure, setSaveFailure] = useState<SaveFailure | null>(null);
   const [explainState, setExplainState] = useState<ExplainState | null>(null);
 
@@ -250,7 +256,7 @@ export function WorkspaceForecast({
   /** Mirrors `WorkspaceScreen.perform`: `saving` flips in the same synchronous
    * continuation as `setSaveFailure`, never read from `useTransition`'s `isPending`,
    * which lags one render behind a state update made inside the same transition. */
-  function perform(action: () => Promise<ActionOutcome>, onDone: () => void) {
+  function perform(action: () => Promise<ActionOutcome>, onDone: () => void, onSettled?: () => void) {
     const run = () => {
       setSaving(true);
       startTransition(async () => {
@@ -258,10 +264,12 @@ export function WorkspaceForecast({
         if (!result.ok) {
           setSaveFailure({ message: result.message, remediation: result.remediation, retry: run });
           setSaving(false);
+          onSettled?.();
           return;
         }
         setSaveFailure(null);
         setSaving(false);
+        onSettled?.();
         router.refresh();
         onDone();
       });
@@ -323,6 +331,22 @@ export function WorkspaceForecast({
     perform(() => setHorizonAction(workspaceId, horizon), () => {});
   }
 
+  /**
+   * Spec section 4.1's explicit re-seed. It overwrites every driver in the scenario
+   * with values derived from the history as it stands now, which is the only way a
+   * scenario created against an earlier history gets driver rows for the periods that
+   * history has since added. Deliberately a button the user presses, never something
+   * the page does on load.
+   */
+  function reseed() {
+    setReseeding(true);
+    perform(
+      () => reseedScenarioAction(workspaceId, activeScenarioId),
+      () => toast.show("Drivers re-seeded from history"),
+      () => setReseeding(false),
+    );
+  }
+
   function commitDriver(driverKey: string, periodKey: string, value: number) {
     perform(() => saveDriverAction(workspaceId, activeScenarioId, driverKey, periodKey, value), () => {});
   }
@@ -354,13 +378,19 @@ export function WorkspaceForecast({
     });
   }
 
+  // A period with no driver row has NO VALUE, and says so. It used to render as
+  // `value ?? 0`, with no seed marker, which put "0.00%" in the grid for a driver the
+  // engine had actually run at 0.03 — the grid showing numbers the forecast did not
+  // use. The engine now refuses that scenario outright (`forecast_drivers_missing`),
+  // so this is the second line of defence rather than the only one, but a fabricated
+  // zero must not be reachable from here at all.
   const driverRows: DriverRowData[] = DRIVER_KEYS.map((key) => ({
     key,
     cells: forecast.forecastPeriods.map((periodKey) => {
       const row = forecast.drivers.find((d) => d.key === key && d.periodKey === periodKey);
       return {
         periodKey,
-        value: row?.value ?? 0,
+        value: row?.value,
         seed: row && row.basis !== "user" ? { basis: row.basis, note: row.note } : undefined,
       };
     }),
@@ -398,6 +428,31 @@ export function WorkspaceForecast({
         onDelete={removeScenario}
         onHorizonChange={changeHorizon}
       />
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Tooltip label={tooltip("control.scenario_reseed")}>
+          <button
+            type="button"
+            onClick={reseed}
+            disabled={saving}
+            className="w-fit whitespace-nowrap rounded-[10px] border border-white/10 px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:cursor-not-allowed disabled:text-neutral-600"
+          >
+            {reseeding ? "Re-seeding" : "Re-seed drivers"}
+          </button>
+        </Tooltip>
+        <p className="min-w-0 max-w-[68ch] text-xs leading-relaxed text-neutral-500">
+          Re-seeding overwrites every driver in this scenario with values derived from
+          the history as it stands now. Duplicate the scenario first to keep what you
+          have typed.
+        </p>
+      </div>
+
+      {/*
+        The engine's non-blocking findings, in the place the forecast they describe is
+        read. They were computed, tooltipped and then dropped: a scenario that drew the
+        revolver in every year, or drove equity negative, told the user nothing.
+      */}
+      <FindingList findings={forecast.findings.filter((f) => f.severity !== "blocking")} />
 
       {!forecast.ok ? (
         <Banner

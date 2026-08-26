@@ -164,6 +164,54 @@ export async function createScenario(
   return { ok: true, data: { scenarioId } };
 }
 
+/**
+ * Re-derives a scenario's drivers from the history AS IT STANDS NOW and overwrites
+ * every row it holds, for the forecast periods the current history implies.
+ *
+ * Spec §4.1: "Re-seeding is an explicit user action that overwrites, never a silent
+ * refresh." This is that action. It exists because driver rows are written once, at
+ * scenario creation, against the forecast periods the then-latest historical year
+ * implied — so uploading next year's filing into a workspace that already has
+ * scenarios leaves the last forecast period with no driver rows at all. The engine
+ * refuses that case (`forecast_drivers_missing`); this is how the user fixes it.
+ *
+ * It seeds the plain derived values, the same as `createScenario` does for any
+ * scenario after the first trio. It does NOT re-apply §4.2's Bull and Bear nudges:
+ * those are seeding-time starting points chosen to be obviously arbitrary, and there
+ * is no privileged flag but `isBase` to read them back off a name (spec §2). A
+ * re-seeded Bull is therefore a scenario the user must nudge again, which is why the
+ * control says it overwrites and offers duplicating first.
+ */
+export async function reseedScenario(
+  deps: Deps,
+  workspaceId: string,
+  scenarioId: string,
+): Promise<ActionResult<{ periods: string[] }>> {
+  const workspace = requireWorkspace(deps, workspaceId);
+  const existing = await listScenarios(deps, workspaceId);
+  if (!existing.some((s) => s.id === scenarioId)) {
+    return failure("not_found", "No such scenario in this workspace.", "Reload the page and try again.");
+  }
+
+  const seedInput = await historicalSeedInput(deps, workspaceId);
+  const latest = latestPeriod(seedInput.periods);
+  const periods = extendAnnualPeriods(latest ?? "", workspace.forecastHorizon);
+  if (periods.length === 0) {
+    return failure(
+      "not_forecastable",
+      latest === undefined
+        ? "This workspace has no historical periods to seed from."
+        : `The most recent historical period is ${latest}, which is not a full year.`,
+      "A forecast extends annual periods only. Add a full-year column to the workspace, then re-seed.",
+    );
+  }
+
+  deps.db.delete(schema.drivers).where(eq(schema.drivers.scenarioId, scenarioId)).run();
+  insertDrivers(deps, scenarioId, periods, deriveDrivers(seedInput));
+
+  return { ok: true, data: { periods } };
+}
+
 export async function renameScenario(
   deps: Deps,
   workspaceId: string,

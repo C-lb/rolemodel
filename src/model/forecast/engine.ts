@@ -1,6 +1,6 @@
 import { TAXONOMY, lineItem } from "../taxonomy";
 import { sortPeriodsMostRecentFirst } from "../periods";
-import { DRIVER_DEFAULTS, DRIVER_KEYS, driver } from "./drivers";
+import { DRIVER_DEFAULTS, DRIVER_KEYS, driver, type DriverUnit } from "./drivers";
 import type { DriverBasis } from "./seed";
 import type { Finding } from "../validate";
 
@@ -150,6 +150,28 @@ export function balanceSheetSpan(subtotalKey: string, afterKey: string | null): 
 export const TOTAL_ASSETS_PARTS = balanceSheetSpan("total_assets", null);
 export const TOTAL_LIABILITIES_PARTS = balanceSheetSpan("total_liabilities", "total_assets");
 
+/**
+ * The largest magnitude a driver can take before the forecast is arithmetic about
+ * nothing. These are not modelling opinions — 1000 per cent growth, ten years of
+ * receivable days and a trillion units of currency are all far outside anything a
+ * real model uses — they exist so an unusable ASSUMPTION is named as one.
+ *
+ * Without them, `revenue_growth: -1e6` and `tax_rate: 1e300` reached the arithmetic,
+ * overflowed or cancelled catastrophically, and came back as
+ * `forecast_articulation_broken`, whose remediation reads "This is a defect in the
+ * forecast engine, not in the assumptions. Report it." It was the assumptions. A guard
+ * that misdirects the user to file a bug against the engine is worse than no guard.
+ */
+const DRIVER_BOUNDS: Readonly<Record<DriverUnit, number>> = {
+  percent: 10,
+  days: 3650,
+  currency: 1e12,
+};
+
+function driverBound(key: string): number {
+  return DRIVER_BOUNDS[driver(key)?.unit ?? "currency"];
+}
+
 function cellId(key: string, period: string): string {
   return `${key}@${period}`;
 }
@@ -220,6 +242,59 @@ export function runForecast(input: ForecastInput): ForecastResult {
     });
     return blocked();
   }
+
+  // ---- Gate 3: the scenario's drivers cover every forecast period, plausibly -----
+  //
+  // A driver row is written once, at scenario creation, against the forecast periods
+  // the history implied AT THAT MOMENT. Upload a later filing and the history moves:
+  // `forecastPeriods` here is recomputed from the CURRENT latest historical year, so
+  // the last period of the list has no driver rows at all. Before this gate, `d()`
+  // below fell back to `DRIVER_DEFAULTS` for every one of them and the forecast came
+  // back `ok: true` — a rendered grid, with a zero gross margin, built from
+  // assumptions the user never set and the driver grid did not show.
+  //
+  // This is a refusal rather than a silent fill because spec §4.1 rules the silent
+  // fill out: "Re-seeding is an explicit user action that overwrites, never a silent
+  // refresh." Filling the gap here with derived or default values IS a silent refresh,
+  // just one performed per page load. The user re-seeds the scenario instead.
+  const missingDrivers: string[] = [];
+  const implausibleDrivers: string[] = [];
+  const uncoveredPeriods = new Set<string>();
+  for (const period of input.forecastPeriods) {
+    for (const key of DRIVER_KEYS) {
+      const value = input.driverAt(key, period);
+      if (value === undefined) {
+        if (!missingDrivers.includes(key)) missingDrivers.push(key);
+        uncoveredPeriods.add(period);
+        continue;
+      }
+      if (!Number.isFinite(value) || Math.abs(value) > driverBound(key)) {
+        if (!implausibleDrivers.includes(key)) implausibleDrivers.push(key);
+      }
+    }
+  }
+  if (missingDrivers.length > 0) {
+    const periods = [...uncoveredPeriods];
+    findings.push({
+      code: "forecast_drivers_missing",
+      severity: "blocking",
+      periodKey: periods[0] ?? null,
+      keys: missingDrivers,
+      message: `This scenario has no assumptions for ${periods.join(", ")}. Its drivers were set against an earlier history.`,
+      remediation: "Re-seed the scenario to derive its drivers from the history as it stands now. That overwrites every driver in the scenario, so duplicate it first if you want to keep the current assumptions.",
+    });
+  }
+  if (implausibleDrivers.length > 0) {
+    findings.push({
+      code: "forecast_driver_implausible",
+      severity: "blocking",
+      periodKey: input.forecastPeriods[0] ?? null,
+      keys: implausibleDrivers,
+      message: `${implausibleDrivers.map((k) => driverLabel(k)).join(", ")} ${implausibleDrivers.length === 1 ? "is" : "are"} outside any range a forecast can be computed over.`,
+      remediation: "Correct these assumptions. A percentage driver is stored as a decimal, so 5 per cent is 0.05 rather than 5, which is the usual cause.",
+    });
+  }
+  if (findings.some((f) => f.severity === "blocking")) return blocked();
 
   /**
    * The sign this workspace's own filings printed for a line, taken from the most recent
@@ -324,6 +399,10 @@ export function runForecast(input: ForecastInput): ForecastResult {
       value: open(key),
     });
 
+    // Gate 3 above has already refused a period with a missing or non-finite driver,
+    // so the fallback is unreachable from here. It stays as the type-level answer to
+    // `driverAt`'s optional return rather than as a behaviour: a driver that silently
+    // becomes a default is the defect the gate exists to stop.
     const d = (key: string): number => {
       const v = input.driverAt(key, period);
       return v !== undefined && Number.isFinite(v) ? v : (DRIVER_DEFAULTS[key] ?? 0);

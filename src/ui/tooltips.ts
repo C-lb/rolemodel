@@ -42,6 +42,10 @@ const findingTooltips: Record<string, string> = {
     "Total equity fell below zero in a forecast period. Ratios that divide by equity, such as return on equity, become undefined or misleading.",
   "finding.forecast_driver_default":
     "At least one driver could not be derived from history and fell back to a documented default rather than the business's own historical figure.",
+  "finding.forecast_drivers_missing":
+    "This scenario's assumptions were written against an earlier history. A forecast period now has no drivers at all, so the forecast is refused rather than quietly computed from defaults nobody chose.",
+  "finding.forecast_driver_implausible":
+    "A driver is far outside any range a forecast can be computed over. This is a problem with the assumption, not with the engine. Percentage drivers are stored as decimals, so 5 per cent is 0.05.",
 };
 
 /**
@@ -69,6 +73,7 @@ export const CONTROL_KEYS = [
   "control.scenario_duplicate",
   "control.scenario_delete",
   "control.scenario_horizon",
+  "control.scenario_reseed",
   "control.driver_seed_marker",
   "control.driver_fill_right",
   "control.forecast_cell",
@@ -110,6 +115,7 @@ const controlTooltips: Record<(typeof CONTROL_KEYS)[number], string> = {
   "control.scenario_duplicate": "Copy this scenario's name and every one of its driver values into a new scenario.",
   "control.scenario_delete": "Delete this scenario and its driver values. The base scenario cannot be deleted, which is why it has no delete control.",
   "control.scenario_horizon": "How many forecast periods to project, from one to five years. Raising it seeds new periods from the last one; lowering it deletes the periods beyond the new horizon.",
+  "control.scenario_reseed": "Derive this scenario's drivers again from the history as it stands now, and overwrite every value it holds. Use this after adding a new year of actuals. Duplicate the scenario first if you want to keep the assumptions you have typed.",
   "control.driver_seed_marker": "This driver is still at the value it was seeded with. The tooltip on the marker itself says whether that value was derived from history or is a fallback default.",
   "control.driver_fill_right": "Copy this period's value across every later forecast period for this driver, so the same assumption does not have to be typed five times.",
   "control.forecast_cell": "Show the formula that produced this figure, the driver values it used, and the opening balances it read. Forecast cells are computed, not edited: change the driver instead.",

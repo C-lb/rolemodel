@@ -12,6 +12,12 @@ export const FINDING_CODES = [
   // the engine returns the same structure rather than forking a parallel finding type.
   "forecast_not_annual", "forecast_missing_base", "forecast_articulation_broken",
   "forecast_revolver_drawn", "forecast_equity_negative", "forecast_driver_default",
+  // Added by the final M3 review. `forecast_drivers_missing` is what stops a scenario
+  // whose driver rows were written against an older history from silently falling back
+  // to `DRIVER_DEFAULTS` for a period nobody ever seeded; `forecast_driver_implausible`
+  // separates "the assumptions are unusable" from "the engine is broken", which
+  // `forecast_articulation_broken` used to absorb and then blame on the engine.
+  "forecast_drivers_missing", "forecast_driver_implausible",
 ] as const;
 export type FindingCode = (typeof FINDING_CODES)[number];
 

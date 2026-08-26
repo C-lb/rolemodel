@@ -4,8 +4,9 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as schema from "@/db/schema";
 import { migrate, type Db } from "@/db/client";
 import type { Deps } from "./documents";
-import { createScenario, listScenarios, saveDriver, readDrivers } from "./scenarios";
+import { createScenario, listScenarios, saveDriver, readDrivers, reseedScenario } from "./scenarios";
 import { assembleForecast } from "./forecast";
+import { DRIVER_KEYS } from "@/model/forecast/drivers";
 
 function freshDb(): Db {
   const sqlite = new Database(":memory:");
@@ -110,9 +111,9 @@ describe("assembleForecast", () => {
   it("returns the engine's blocking finding, not a thrown error, when periods are quarterly", async () => {
     makeQuarterlyWorkspace(db, "ws1");
     // No scenario exists; assembleForecast must not need one to hit the quarterly gate,
-    // and a nonexistent scenarioId must not make it throw either — the engine's driver
-    // lookups simply come back undefined and fall through to defaults, same as any
-    // other missing driver row.
+    // and a nonexistent scenarioId must not make it throw either. The quarterly gate
+    // runs before the driver-coverage gate, so this workspace is refused for the
+    // reason a user would recognise rather than for having no drivers.
     const result = await assembleForecast(deps, "ws1", "no-such-scenario");
 
     expect(result.ok).toBe(false);
@@ -189,5 +190,101 @@ describe("assembleForecast", () => {
     if (afterFinding) {
       expect(afterFinding.keys).not.toContain("debt_repayment");
     }
+  });
+});
+
+/**
+ * THE CASE NOTHING COVERED, which is why it shipped.
+ *
+ * Driver rows are written once, at scenario creation, against the forecast periods the
+ * then-latest historical year implied. `buildForecastInput` recomputes that list from
+ * the CURRENT latest. Upload next year's filing into a workspace that already has
+ * scenarios and the two lists come apart: the last forecast period has no driver rows
+ * at all. Before the coverage gate the engine fell back to `DRIVER_DEFAULTS` for all
+ * seventeen and returned ok, with a zero gross margin, and the driver grid rendered
+ * `0.00%` for assumptions the engine had actually run at 0.03, 0.21 and 0.02.
+ */
+describe("a history that gains a period after its scenarios exist", () => {
+  let db: Db;
+  let deps: Deps;
+
+  beforeEach(() => {
+    db = freshDb();
+    deps = depsFor(db);
+  });
+
+  /** FY2024 history, a five-year Base, then FY2025 actuals land. */
+  async function withLaterActuals(): Promise<string> {
+    makeAnnualWorkspace(db, "ws1");
+    const created = await createScenario(deps, "ws1", "ignored");
+    if (!created.ok) throw new Error("expected scenario creation to succeed");
+
+    const before = await readDrivers(deps, created.data.scenarioId);
+    expect([...new Set(before.map((r) => r.periodKey))].sort())
+      .toEqual(["FY2025", "FY2026", "FY2027", "FY2028", "FY2029"]);
+
+    insertFacts(db, "ws1", "FY2025", FY2024);
+    return created.data.scenarioId;
+  }
+
+  it("refuses the forecast by name rather than quietly running on defaults", async () => {
+    const scenarioId = await withLaterActuals();
+
+    const result = await assembleForecast(deps, "ws1", scenarioId);
+    expect(result.ok).toBe(false);
+    expect(result.cells).toEqual([]);
+
+    const finding = result.findings.find((f) => f.code === "forecast_drivers_missing");
+    expect(finding, result.findings.map((f) => f.code).join(", ")).toBeDefined();
+    expect(finding!.severity).toBe("blocking");
+    // FY2026..FY2030 is the list now; only FY2030 was never seeded.
+    expect(finding!.periodKey).toBe("FY2030");
+    expect(finding!.keys).toEqual([...DRIVER_KEYS]);
+    // And it points at the fix rather than at the engine.
+    expect(finding!.remediation).toMatch(/re-seed/i);
+  });
+
+  it("re-seeding overwrites the scenario against the current history and unblocks it", async () => {
+    const scenarioId = await withLaterActuals();
+
+    const reseeded = await reseedScenario(deps, "ws1", scenarioId);
+    expect(reseeded.ok).toBe(true);
+    if (!reseeded.ok) return;
+    expect(reseeded.data.periods).toEqual(["FY2026", "FY2027", "FY2028", "FY2029", "FY2030"]);
+
+    // Overwritten, not merged: the rows for FY2025, now a historical period, are gone.
+    const rows = await readDrivers(deps, scenarioId);
+    expect([...new Set(rows.map((r) => r.periodKey))].sort()).toEqual(reseeded.data.periods);
+    for (const period of reseeded.data.periods) {
+      expect(rows.filter((r) => r.periodKey === period).map((r) => r.key).sort())
+        .toEqual([...DRIVER_KEYS].sort());
+    }
+
+    const result = await assembleForecast(deps, "ws1", scenarioId);
+    expect(result.ok, result.findings.map((f) => f.message).join("; ")).toBe(true);
+    expect(result.findings.some((f) => f.code === "forecast_drivers_missing")).toBe(false);
+    // A real forecast, opening from the new last actual rather than the old one.
+    expect(result.valueAt("revenue", "FY2026")).toBeGreaterThan(0);
+    expect(result.valueAt("gross_profit", "FY2026")).toBeGreaterThan(0);
+  });
+
+  it("re-seeding a scenario that is not in the workspace is refused, not thrown", async () => {
+    makeAnnualWorkspace(db, "ws1");
+    const result = await reseedScenario(deps, "ws1", "no-such-scenario");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("not_found");
+  });
+
+  it("refuses to re-seed a workspace whose latest period is not a full year", async () => {
+    makeQuarterlyWorkspace(db, "ws1");
+    db.insert(schema.scenarios).values({
+      id: "s1", workspaceId: "ws1", name: "Base", isBase: 1, ordinal: 0, createdAt: 1,
+    }).run();
+    const result = await reseedScenario(deps, "ws1", "s1");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("not_forecastable");
+    expect(result.message).toContain("Q1-2025");
   });
 });

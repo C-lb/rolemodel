@@ -14,6 +14,7 @@ import {
   saveDriver,
   fillRight,
   setForecastHorizon,
+  reseedScenario,
 } from "@/server/scenarios";
 import { buildForecastInput } from "@/server/forecast";
 import { explainRatio as explain, type RatioReading } from "@/server/interpretation";
@@ -140,6 +141,15 @@ export async function createScenarioAction(
   workspaceId: string, name: string,
 ): Promise<ActionResult<{ scenarioId: string }>> {
   const result = await createScenario(realDeps(), workspaceId, name);
+  if (result.ok) revalidatePath(`/w/${workspaceId}`);
+  return result;
+}
+
+/** Spec §4.1's explicit re-seed: overwrites every driver from the current history. */
+export async function reseedScenarioAction(
+  workspaceId: string, scenarioId: string,
+): Promise<ActionResult<{ periods: string[] }>> {
+  const result = await reseedScenario(realDeps(), workspaceId, scenarioId);
   if (result.ok) revalidatePath(`/w/${workspaceId}`);
   return result;
 }
