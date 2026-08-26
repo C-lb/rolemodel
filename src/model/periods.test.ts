@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   PERIOD_KEY_PATTERN,
   UNRANKED,
+  extendAnnualPeriods,
   isRankablePeriodKey,
   isImmediatePredecessor,
   missingPeriodsInSequence,
@@ -37,6 +38,34 @@ describe("period keys", () => {
     expect(sortPeriodsMostRecentFirst(["FY2023", "FY2024", "Q1-2025"]))
       .toEqual(["Q1-2025", "FY2024", "FY2023"]);
     expect(sortPeriodsMostRecentFirst(["FY24", "FY2024"])).toEqual(["FY2024", "FY24"]);
+  });
+});
+
+describe("extendAnnualPeriods", () => {
+  it("returns count keys ascending from the year after latest", () => {
+    expect(extendAnnualPeriods("FY2024", 3)).toEqual(["FY2025", "FY2026", "FY2027"]);
+  });
+
+  it("refuses anything that is not a bare FY key", () => {
+    expect(extendAnnualPeriods("Q4-2024", 3)).toEqual([]);
+    expect(extendAnnualPeriods("", 3)).toEqual([]);
+  });
+
+  it("clamps count to between 1 and 5", () => {
+    expect(extendAnnualPeriods("FY2024", 0)).toHaveLength(1);
+    expect(extendAnnualPeriods("FY2024", -5)).toHaveLength(1);
+    expect(extendAnnualPeriods("FY2024", 10)).toHaveLength(5);
+  });
+
+  it("only ever produces keys the rest of the module already knows how to order", () => {
+    const keys = extendAnnualPeriods("FY2024", 5);
+    for (const key of keys) {
+      expect(isRankablePeriodKey(key), key).toBe(true);
+      expect(periodRank(key)).toBeGreaterThan(periodRank("FY2024"));
+    }
+    for (let i = 1; i < keys.length; i++) {
+      expect(isImmediatePredecessor(keys[i], keys[i - 1]), `${keys[i]} after ${keys[i - 1]}`).toBe(true);
+    }
   });
 });
 

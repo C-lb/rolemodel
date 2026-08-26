@@ -34,6 +34,24 @@ export function sortPeriodsMostRecentFirst(keys: string[]): string[] {
   return [...keys].sort((a, b) => periodRank(b) - periodRank(a));
 }
 
+const BARE_FY_PATTERN = /^FY(\d{4})$/;
+
+/**
+ * Forecast periods are always annual, generated forward from the last historical FY —
+ * never from a quarter, so there is no rule for mixing forecast granularity with
+ * whatever cadence the filing happened to report in. Reuses the FY half of
+ * `PERIOD_KEY_PATTERN` rather than inventing a second definition of what a year key
+ * looks like.
+ */
+export function extendAnnualPeriods(latest: string, count: number): string[] {
+  const match = BARE_FY_PATTERN.exec(latest);
+  if (!match) return [];
+
+  const clamped = Math.min(5, Math.max(1, Math.trunc(count)));
+  const startYear = Number(match[1]) + 1;
+  return Array.from({ length: clamped }, (_, i) => `FY${startYear + i}`);
+}
+
 type Family = "annual" | "quarterly";
 
 /** A rankable key as a family plus a position within that family's own regular sequence. */
