@@ -12,7 +12,7 @@ const findingTooltips: Record<string, string> = {
   "finding.subtotal_mismatch":
     "A printed subtotal disagrees with the sum of the components extracted under it. Often the source includes a line this taxonomy does not model, so check before correcting.",
   "finding.missing_periods":
-    "No reporting periods were found. Either the document has no statements, or the period headers were not recognised.",
+    "Something is wrong with the set of reporting periods: none were found, one of the labels could not be read, or the sequence skips a period. Checks that compare one period against another are only made where the order is certain.",
   "finding.missing_statement":
     "One of the three statements produced no figures. Ratios and forecasts that depend on it will be unavailable.",
   "finding.low_confidence":
