@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { sensitivityGrid, type Axis, type SensitivityCell, type SensitivityOutput } from "./sensitivity";
 import { ENGINE_DRIVERS, fixtureForecastInput, historicalRows } from "./fixtures";
 import type { CustomRatioInput } from "../ratios/compute";
@@ -217,5 +217,46 @@ describe("sensitivityGrid: wrapping driverAt", () => {
 
     expect(fy2025).toBeCloseTo(1100 * 1.2, 9);
     expect(fy2026).toBeCloseTo(1100 * 1.2 * 1.2, 9);
+  });
+});
+
+describe("sensitivityGrid: driverBasisAt survives the wrapper", () => {
+  // `SensitivityCell` has no slot for findings (`state`/`value`/`isBase` only, see the
+  // type above) — `forecast_driver_default` is an info finding on `ForecastResult`,
+  // which `evaluateCell` reads only for its blocking findings. So the observable-outcome
+  // version of this test (assert the finding shows up on a cell) is not possible without
+  // changing the sensitivity module's public shape, which the task forbids. Instead this
+  // proves the thing a future editor could actually break: that `withAxisDrivers`'s
+  // `{...input, driverAt}` spread still hands the engine a working `driverBasisAt`, by
+  // wrapping the fixture's own `driverBasisAt` in a spy and asserting `runForecast` — via
+  // `sensitivityGrid`, its only entry point here — actually calls it and gets "default"
+  // back for a driver named in `defaultedDrivers`. If `withAxisDrivers` were rewritten as
+  // an explicit object literal that dropped `driverBasisAt`, `wrapped.driverBasisAt`
+  // would be `undefined`, the engine's `basisAt !== undefined` guard (engine.ts) would
+  // skip the block entirely, and this spy would never be called — which is exactly the
+  // regression this test exists to catch.
+  it("passes a working driverBasisAt through to the engine on every cell", () => {
+    const input = fixtureForecastInput({ defaultedDrivers: ["revenue_growth"] });
+    const originalDriverBasisAt = input.driverBasisAt;
+    if (!originalDriverBasisAt) throw new Error("fixture did not supply driverBasisAt");
+    const driverBasisAtSpy = vi.fn(originalDriverBasisAt);
+    input.driverBasisAt = driverBasisAtSpy;
+
+    const rowAxis: Axis = { driverKey: "revenue_growth", min: 0, max: 0.1, steps: 3 };
+    const columnAxis: Axis = { driverKey: "gross_margin", min: 0.3, max: 0.5, steps: 3 };
+    const output: SensitivityOutput = { kind: "lineItem", key: "revenue", periodKey: "FY2025" };
+
+    const result = grid(rowAxis, columnAxis, output, NO_CUSTOM_RATIOS, input);
+
+    // Every cell reached the engine and ran to completion.
+    for (const row of result.cells) for (const cell of row) expect(cell.state).toBe("ok");
+
+    // The spy was actually invoked — by `runForecast`, never by this test — and reported
+    // "default" for the driver `defaultedDrivers` named, proving `driverBasisAt` made it
+    // through the wrapper intact rather than merely being present but unused.
+    expect(driverBasisAtSpy).toHaveBeenCalled();
+    const calledWithRevenueGrowth = driverBasisAtSpy.mock.calls.some(([key]) => key === "revenue_growth");
+    expect(calledWithRevenueGrowth).toBe(true);
+    expect(driverBasisAtSpy.mock.results.some((r) => r.value === "default")).toBe(true);
   });
 });
