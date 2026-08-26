@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { TAXONOMY, lineItem, itemsFor } from "./taxonomy";
+import { buildUserPrompt } from "@/extract/prompt";
 
 describe("taxonomy", () => {
   it("has unique keys", () => {
@@ -50,12 +51,29 @@ describe("taxonomy", () => {
   });
 
   it("marks absentMeansZero on revolver only", () => {
-    // Not "the extractor can never emit this key" — nothing in src/extract currently
-    // constrains that (see task-2-report.md). This pins the narrower, genuinely
-    // assertable fact: the escape hatch from the ratio engine's "missing input makes
-    // the ratio unavailable" rule stays a single, deliberate opt-in, not a list that
-    // quietly grows.
+    // The escape hatch from the ratio engine's "missing input makes the ratio
+    // unavailable" rule stays a single, deliberate opt-in, not a list that quietly
+    // grows.
     const flagged = TAXONOMY.filter((i) => i.absentMeansZero === true).map((i) => i.key);
     expect(flagged).toEqual(["revolver"]);
+  });
+
+  it("never offers an absentMeansZero key to the extraction model", () => {
+    // The real guard: an absentMeansZero key names a forecast construct the extractor
+    // must never be told is a legitimate mapping target, or a real "revolving credit
+    // facility" line could map onto `revolver` and the taxonomy's own documented
+    // invariant ("always absent in extracted historicals") would become false in the
+    // one place that matters. This is checked against the actual built prompt, not a
+    // list that could drift from what the model is really shown.
+    const prompt = buildUserPrompt({ label: "test", text: "irrelevant" });
+    const flagged = TAXONOMY.filter((i) => i.absentMeansZero === true);
+    expect(flagged.length).toBeGreaterThan(0);
+    for (const item of flagged) {
+      expect(new RegExp(`\\b${item.key}\\b`).test(prompt), item.key).toBe(false);
+    }
+    // A real debt facility must still land somewhere: the exclusion must not have
+    // taken its closest fits with it.
+    expect(prompt).toContain("short_term_debt");
+    expect(prompt).toContain("long_term_debt");
   });
 });

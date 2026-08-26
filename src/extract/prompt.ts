@@ -36,8 +36,19 @@ export function formatPageList(pages: number[]): string {
   return `pages ${head} and ${pages[pages.length - 1]}`;
 }
 
+/**
+ * A key marked `absentMeansZero` (currently only `revolver`) names a forecast
+ * construct, not anything a historical document reports. Offering it to the
+ * extraction model as a mappable canonical key would let a real "revolving credit
+ * facility" line map onto it, making the taxonomy's own documented invariant false in
+ * the one place it matters. The closest fit for a real facility is `short_term_debt`
+ * or `long_term_debt`, both still offered below, so nothing is left unmappable by
+ * this exclusion.
+ */
 function taxonomyBlock(): string {
-  return TAXONOMY.map((i) => `${i.key} [${i.statement}] — ${i.label}: ${i.definition}`).join("\n");
+  return TAXONOMY.filter((i) => !i.absentMeansZero)
+    .map((i) => `${i.key} [${i.statement}] — ${i.label}: ${i.definition}`)
+    .join("\n");
 }
 
 export function buildUserPrompt(chunk: ExtractionChunk): string {
