@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { RatioCard } from "./RatioCard";
 import { computeRatios, type RatioResult } from "@/model/ratios/compute";
 import { fixtureWorkspace, withoutKeys } from "@/model/ratios/fixtures";
+import { buildWorkspace } from "@/model/workspace";
 import type { AveragingMode } from "@/model/ratios/types";
 
 function ratioResult(key: string, mode: AveragingMode = "ending", options = {}): RatioResult {
@@ -186,5 +187,105 @@ describe("a custom ratio", () => {
     const onDelete = vi.fn();
     render(<RatioCard result={ratioResult("net_margin")} onExplain={noop} onShowProvenance={noop} onDelete={onDelete} />);
     expect(screen.queryByRole("button", { name: /delete/i })).toBeNull();
+  });
+});
+
+/**
+ * THE HEADLINE FIGURE'S PERIOD.
+ *
+ * Once a scenario exists, `page.tsx` builds the ratios workspace with a forecast layer,
+ * so `result.periods[0]` is the FURTHEST FORECAST YEAR. The 2xl headline silently became
+ * a projection where M2 shipped the last actual, with nothing on screen saying so. The
+ * ruling is that the headline is the last HISTORICAL period, and that it names itself.
+ */
+describe("the headline figure, over a workspace with forecast columns", () => {
+  /** The fixture history plus one forecast column, the way `page.tsx` assembles it. */
+  function withForecastColumn(): RatioResult {
+    const ws = fixtureWorkspace();
+    const facts = [];
+    for (const kind of ["income", "balance", "cashflow"] as const) {
+      for (const row of ws.statement(kind)) {
+        for (const cell of row.cells) {
+          if (cell.extractedValue === undefined) continue;
+          facts.push({
+            canonicalKey: cell.canonicalKey, periodKey: cell.periodKey, value: cell.extractedValue,
+            confidence: cell.confidence ?? 1,
+            provenance: cell.provenance ?? {
+              page: null, sheet: null, locator: "", rawLabel: "", rawValue: "",
+              scaleFactor: 1, scaleEvidence: "", signFlipped: false,
+            },
+          });
+        }
+      }
+    }
+    // A current ratio of exactly 4.00x in the forecast year, far from any historical
+    // value, so which period the headline read is unambiguous from the figure alone.
+    const forecastValues: Record<string, number> = {
+      total_current_assets: 8000, total_current_liabilities: 2000,
+    };
+    const widened = buildWorkspace({
+      periods: ws.periods,
+      facts,
+      overrides: [],
+      forecast: { periods: ["FY2029"], valueAt: (key) => forecastValues[key] },
+    });
+    const all = computeRatios({ workspace: widened, mode: "ending", custom: [] });
+    const found = all.find((r) => r.key === "current_ratio");
+    if (!found) throw new Error("no current_ratio");
+    return found;
+  }
+
+  it("reads the last historical period, not the furthest forecast year", () => {
+    const result = withForecastColumn();
+    // The forecast column really is first in the list, so this test is not vacuous.
+    expect(result.periods[0].periodKey).toBe("FY2029");
+    const forecastValue = result.periods[0].value;
+    expect(forecastValue).toBeCloseTo(4, 6);
+
+    render(
+      <RatioCard
+        result={result}
+        onExplain={noop}
+        onShowProvenance={noop}
+        headlinePeriodKey="FY2024"
+      />,
+    );
+
+    const headline = screen.getByText("FY2024, the last actual").closest("div");
+    expect(headline).toBeTruthy();
+    expect(headline?.textContent).toContain("FY2024, the last actual");
+    // The headline is the FY2024 figure. 4.00x is the forecast one and must not be it.
+    const historical = result.periods.find((p) => p.periodKey === "FY2024");
+    expect(historical?.value).toBeDefined();
+    expect(headline?.textContent).toContain(`${(historical?.value ?? 0).toFixed(2)}x`);
+    expect(headline?.textContent).not.toContain("4.00x");
+  });
+
+  it("marks the seam on the trend line so the forecast tail is visible as one", () => {
+    render(
+      <RatioCard
+        result={withForecastColumn()}
+        onExplain={noop}
+        onShowProvenance={noop}
+        headlinePeriodKey="FY2024"
+      />,
+    );
+    expect(document.querySelector('[data-testid="sparkline-seam"]')).toBeTruthy();
+  });
+
+  it("names the period and draws no seam when there is nothing beyond it", () => {
+    render(
+      <RatioCard
+        result={ratioResult("current_ratio")}
+        onExplain={noop}
+        onShowProvenance={noop}
+        headlinePeriodKey="FY2024"
+      />,
+    );
+    // Named, always: the reader should never have to assume which period the big
+    // number is. But there is no forecast, so nothing is "the last actual" by contrast.
+    expect(screen.getAllByText("FY2024").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/the last actual/)).toBeNull();
+    expect(document.querySelector('[data-testid="sparkline-seam"]')).toBeNull();
   });
 });

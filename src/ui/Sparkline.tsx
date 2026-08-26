@@ -46,10 +46,22 @@ export function sparklineSegments(values: (number | null)[]): SparkPoint[][] {
   return segments;
 }
 
+/** The x coordinate of the boundary AFTER the point at `index`, in view coordinates. */
+export function seamX(index: number, count: number): number {
+  const stepX = count > 1 ? (WIDTH - PADDING * 2) / (count - 1) : 0;
+  return PADDING + index * stepX + stepX / 2;
+}
+
 interface Props {
   /** Oldest first, so the line reads left to right the way a trend is read. */
   values: (number | null)[];
   label: string;
+  /**
+   * Index of the last historical point, when the series runs on into forecast periods.
+   * A faint rule is drawn just after it, so a trend that continues into projected
+   * years does not read as one unbroken run of observed figures.
+   */
+  seamIndex?: number;
 }
 
 /**
@@ -57,9 +69,10 @@ interface Props {
  * it, so this carries no axis, no labels and no accessible text: it is decoration over
  * numbers the reader already has.
  */
-export function Sparkline({ values, label }: Props) {
+export function Sparkline({ values, label, seamIndex }: Props) {
   const segments = sparklineSegments(values);
   if (segments.length === 0) return null;
+  const showSeam = seamIndex !== undefined && seamIndex >= 0 && seamIndex < values.length - 1;
 
   return (
     <svg
@@ -72,6 +85,19 @@ export function Sparkline({ values, label }: Props) {
       fill="none"
       className="h-7 w-[7.5rem] shrink-0 text-neutral-500"
     >
+      {showSeam && (
+        <line
+          data-testid="sparkline-seam"
+          x1={seamX(seamIndex, values.length).toFixed(2)}
+          x2={seamX(seamIndex, values.length).toFixed(2)}
+          y1={0}
+          y2={HEIGHT}
+          stroke="currentColor"
+          strokeWidth={1}
+          strokeDasharray="2 2"
+          opacity={0.45}
+        />
+      )}
       {segments.map((segment, index) => (
         <polyline
           key={index}

@@ -30,6 +30,17 @@ interface Props {
    * leaving the reader to guess whether the forecast columns were considered.
    */
   forecastExcluded?: boolean;
+  /**
+   * The last HISTORICAL period, which is the one the headline figure reads.
+   *
+   * `result.periods` arrives most recent first and, once a scenario exists, that is a
+   * forecast year: the headline silently became a projection, in the same 2xl type,
+   * where M2 shipped the last actual. What a headline number means must not change
+   * underneath a reader, so the period is named here and the card is told which one it
+   * is rather than inferring it from the shape of the list. Absent (no forecast layer),
+   * the first period is the last actual anyway and nothing changes.
+   */
+  headlinePeriodKey?: string;
 }
 
 const DIRECTION_COPY: Record<RatioResult["direction"], string> = {
@@ -120,15 +131,24 @@ function ComponentRow({
 }
 
 export function RatioCard({
-  result, onExplain, onShowProvenance, onDelete, reading = { state: "idle" }, forecastExcluded = false,
+  result, onExplain, onShowProvenance, onDelete, reading = { state: "idle" },
+  forecastExcluded = false, headlinePeriodKey,
 }: Props) {
   const [showInputs, setShowInputs] = useState(false);
 
   // Results arrive most recent first, which is how the figures are read. The trend line
   // reads left to right in time, so it takes the reverse.
-  const latest = result.periods[0];
+  const headline = headlinePeriodKey === undefined
+    ? undefined
+    : result.periods.find((p) => p.periodKey === headlinePeriodKey);
+  const latest = headline ?? result.periods[0];
   const chronological = [...result.periods].reverse();
   const trend = chronological.map((p) => (p.state === "ok" && p.value !== undefined ? p.value : null));
+  // Where history ends on the trend line, so the forecast tail is visibly a tail rather
+  // than more of the same series.
+  const seamIndex = headline === undefined
+    ? undefined
+    : chronological.findIndex((p) => p.periodKey === headline.periodKey);
 
   // A card covers every period, so it carries every period's notes, deduplicated. Showing
   // only the latest period's would hide the averaging fallback, which by definition lands
@@ -168,12 +188,20 @@ export function RatioCard({
       </header>
 
       <div className="flex min-w-0 items-end justify-between gap-4">
-        <p className="min-w-0 text-2xl leading-tight tracking-tight text-neutral-100 tabular-nums">
-          {latest && latest.state === "ok" && latest.value !== undefined
-            ? formatRatio(latest.value, result.unit)
-            : "—"}
-        </p>
-        <Sparkline values={trend} label={`${result.label} trend`} />
+        <div className="flex min-w-0 flex-col gap-1">
+          <p className="min-w-0 text-2xl leading-tight tracking-tight text-neutral-100 tabular-nums">
+            {latest && latest.state === "ok" && latest.value !== undefined
+              ? formatRatio(latest.value, result.unit)
+              : "—"}
+          </p>
+          {latest && (
+            <span className="block text-xs leading-relaxed text-neutral-500">
+              {latest.periodKey}
+              {latest !== result.periods[0] && ", the last actual"}
+            </span>
+          )}
+        </div>
+        <Sparkline values={trend} label={`${result.label} trend`} seamIndex={seamIndex} />
       </div>
 
       {latest && latest.state !== "ok" && (

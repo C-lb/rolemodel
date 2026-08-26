@@ -12,6 +12,7 @@ import { StatementTable, droppedRowKey } from "@/ui/StatementTable";
 import { RemapDrawer, type UnmappedFact } from "@/ui/RemapDrawer";
 import { ProvenancePanel } from "@/ui/ProvenancePanel";
 import { Banner } from "@/ui/Banner";
+import { FindingList } from "@/ui/FindingList";
 import { useToast } from "@/ui/ToastProvider";
 import { tooltip } from "@/ui/tooltips";
 import { Tooltip } from "@/ui/Tooltip";
@@ -89,14 +90,6 @@ const STATEMENT_TITLES: [keyof Statements, string][] = [
 
 const cellId = (key: string, period: string) => `${key}::${period}`;
 
-/**
- * Identity of one finding. Several findings share a code and a period (one per
- * subtotal, one per conflicting cell, one per missing statement), so the keys
- * they carry are what tells them apart. Dismissing one must not hide its siblings.
- */
-const findingId = (f: Finding) => `${f.code}:${f.periodKey}:${f.keys.join(",")}`;
-
-
 export function WorkspaceScreen({
   workspaceId, documentName, periods, findings, statements, unmapped,
   ratios, customRatios, averagingMode, forecast = EMPTY_FORECAST, hasForecast = false,
@@ -108,7 +101,6 @@ export function WorkspaceScreen({
   const [builderError, setBuilderError] = useState<string | null>(null);
   const [readings, setReadings] = useState<Record<string, ReadingState>>({});
   const [dragging, setDragging] = useState(false);
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [saveFailure, setSaveFailure] = useState<SaveFailure | null>(null);
   // Whether the save/reset/undo path currently has a request in flight. This is
   // its own state rather than useTransition's `isPending`, because `isPending`
@@ -325,10 +317,21 @@ export function WorkspaceScreen({
     });
   }
 
-  /** A ratio component points back at the cell it came from, so provenance is one click away. */
+  /**
+   * A ratio component points back at the cell it came from, so provenance is one click
+   * away. `cells` is built from the historical statements only, so a component in a
+   * forecast period has no entry there. That is not a lookup failure to swallow: a
+   * forecast figure genuinely has no source document behind it, and the click has to
+   * say so rather than do nothing. The forecast's own answer to provenance is the
+   * formula panel on the Forecast tab.
+   */
   function inspectComponent(canonicalKey: string, periodKey: string) {
     const cell = cells.get(cellId(canonicalKey, periodKey));
-    if (cell) setInspected(cell);
+    if (cell) {
+      setInspected(cell);
+      return;
+    }
+    toast.show(`${periodKey} is forecast, so it has no source document. Open the Forecast tab for its formula.`);
   }
 
   function handleDragEnd(event: DragEndEvent) {
@@ -338,7 +341,6 @@ export function WorkspaceScreen({
     remap(String(event.active.id), toKey);
   }
 
-  const visible = findings.filter((f) => !dismissed.has(findingId(f)));
   const builtIn = ratios.filter((r) => !r.isCustom);
   const shown = coreOnly ? builtIn.filter((r) => CORE_KEYS.includes(r.key)) : builtIn;
   const custom = ratios.filter((r) => r.isCustom);
@@ -381,25 +383,7 @@ export function WorkspaceScreen({
           />
         )}
 
-        {visible.length > 0 && (
-          <div className="flex flex-col gap-2">
-            {visible.map((f) => (
-              <Banner
-                key={findingId(f)}
-                severity={f.severity}
-                title={f.message}
-                titleHelp={tooltip(`finding.${f.code}`)}
-                remediation={f.remediation}
-                // Only a blocking finding is undismissable — it means the workspace
-                // is not safe to read as numbers. Warning and info are both, by
-                // definition, things the user may act on and move past.
-                onDismiss={f.severity !== "blocking"
-                  ? () => setDismissed((prev) => new Set(prev).add(findingId(f)))
-                  : undefined}
-              />
-            ))}
-          </div>
-        )}
+        <FindingList findings={findings} />
 
         <div role="tablist" aria-label="Workspace views" className="flex flex-wrap gap-2">
           {([["statements", "Statements"], ["ratios", "Ratios"], ["forecast", "Forecast"]] as const).map(([id, label]) => (
@@ -508,6 +492,7 @@ export function WorkspaceScreen({
                       onExplain={explain}
                       onShowProvenance={inspectComponent}
                       forecastExcluded={hasForecast}
+                      headlinePeriodKey={periods[0]}
                     />
                   ))}
                 </RatioSection>
@@ -524,6 +509,7 @@ export function WorkspaceScreen({
                   onShowProvenance={inspectComponent}
                   onDelete={removeRatio}
                   forecastExcluded={hasForecast}
+                  headlinePeriodKey={periods[0]}
                 />
               ))}
             </RatioSection>
