@@ -63,6 +63,19 @@ export const CONTROL_KEYS = [
   "control.ratio_focus",
   "control.ratio_averaging",
   "control.ratio_new",
+  "control.scenario_tab",
+  "control.scenario_add",
+  "control.scenario_rename",
+  "control.scenario_duplicate",
+  "control.scenario_delete",
+  "control.scenario_horizon",
+  "control.driver_seed_marker",
+  "control.driver_fill_right",
+  "control.forecast_cell",
+  "control.held_flat_row",
+  "control.held_at_zero_row",
+  "control.sensitivity_base_cell",
+  "control.sensitivity_shading",
 ] as const;
 
 const controlTooltips: Record<(typeof CONTROL_KEYS)[number], string> = {
@@ -79,6 +92,19 @@ const controlTooltips: Record<(typeof CONTROL_KEYS)[number], string> = {
   "control.ratio_expression": "Line items, numbers, brackets and the four operators. A line item is written by its key, and a ratio you have already saved can be used the same way. No functions, and nothing is executed as code.",
   "control.ratio_chip": "Press a line item to add it to the expression, or drag it into the box. Both do the same thing, so this works without a mouse.",
   "control.ratio_inputs": "Show the figures this ratio was built from: what each component held, what the ratio actually used after any sign or averaging adjustment, and a link back to where each figure came from.",
+  "control.scenario_tab": "Switch to this scenario. Its own driver values, forecast statements and sensitivity grid replace the ones shown now.",
+  "control.scenario_add": "Create a new scenario with drivers derived fresh from this workspace's history. You can change any value afterwards.",
+  "control.scenario_rename": "Rename this scenario. The driver values and forecast underneath are unchanged.",
+  "control.scenario_duplicate": "Copy this scenario's name and every one of its driver values into a new scenario.",
+  "control.scenario_delete": "Delete this scenario and its driver values. The base scenario cannot be deleted, which is why it has no delete control.",
+  "control.scenario_horizon": "How many forecast periods to project, from one to five years. Raising it seeds new periods from the last one; lowering it deletes the periods beyond the new horizon.",
+  "control.driver_seed_marker": "This driver is still at the value it was seeded with. The tooltip on the marker itself says whether that value was derived from history or is a fallback default.",
+  "control.driver_fill_right": "Copy this period's value across every later forecast period for this driver, so the same assumption does not have to be typed five times.",
+  "control.forecast_cell": "Show the formula that produced this figure, the driver values it used, and the opening balances it read. Forecast cells are computed, not edited: change the driver instead.",
+  "control.held_flat_row": "This line is held flat at its opening balance for every forecast period, because the model has no driver that moves it.",
+  "control.held_at_zero_row": "This line is held at zero for every forecast period. Repeating a one-off figure indefinitely would be a worse default than assuming none.",
+  "control.sensitivity_base_cell": "The cell matching this scenario's current driver values, outlined so it is easy to find among the grid.",
+  "control.sensitivity_shading": "Cells are shaded by how far the output sits from the base case. The direction arrow and shade intensity both carry that reading, so the grid does not depend on colour alone.",
 };
 
 /** Copy for figures that landed outside the taxonomy, which have no line-item definition to show. */

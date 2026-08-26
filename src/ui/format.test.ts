@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { formatMoney, parseMoney, formatRatio } from "./format";
+import {
+  formatMoney,
+  parseMoney,
+  formatRatio,
+  formatDriverValue,
+  parseDriverValue,
+  driverEditValue,
+} from "./format";
+import type { DriverUnit } from "@/model/forecast/drivers";
 
 describe("formatMoney", () => {
   it("groups thousands", () => expect(formatMoney(1234567)).toBe("1,234,567"));
@@ -45,5 +53,88 @@ describe("formatRatio", () => {
       expect(formatRatio(Number.NaN, unit)).not.toMatch(/NaN/);
       expect(formatRatio(Number.POSITIVE_INFINITY, unit)).not.toMatch(/Infinity/);
     }
+  });
+});
+
+describe("formatDriverValue", () => {
+  it("renders a percent driver as a percentage, stored value stays a decimal", () => {
+    expect(formatDriverValue(0.0345, "percent")).toBe("3.45%");
+    expect(formatDriverValue(-0.02, "percent")).toBe("-2.00%");
+  });
+
+  it("renders a days driver as a whole day count with no unit suffix baked into the stored value", () => {
+    expect(formatDriverValue(45, "days")).toBe("45");
+    expect(formatDriverValue(45.6, "days")).toBe("46");
+  });
+
+  it("renders a currency driver exactly as formatMoney does", () => {
+    expect(formatDriverValue(125000, "currency")).toBe(formatMoney(125000));
+    expect(formatDriverValue(-500, "currency")).toBe(formatMoney(-500));
+  });
+
+  it("renders an absent driver value as an em dash for every unit", () => {
+    for (const unit of ["percent", "days", "currency"] as const) {
+      expect(formatDriverValue(undefined, unit)).toBe("—");
+    }
+  });
+});
+
+describe("driverEditValue: the raw string a click-to-edit field seeds its draft with", () => {
+  it("shows a percent driver's decimal as plain percentage points, no % sign", () => {
+    expect(driverEditValue(0.0345, "percent")).toBe("3.45");
+  });
+
+  it("shows a days driver as a plain day count", () => {
+    expect(driverEditValue(45, "days")).toBe("45");
+  });
+
+  it("shows a currency driver as the raw figure, matching parseMoney's own money convention", () => {
+    expect(driverEditValue(-2500, "currency")).toBe("-2500");
+  });
+});
+
+describe("parseDriverValue", () => {
+  it("parses a typed percentage, with or without the % sign, back to a decimal", () => {
+    expect(parseDriverValue("3.45%", "percent")).toBeCloseTo(0.0345, 10);
+    expect(parseDriverValue("3.45", "percent")).toBeCloseTo(0.0345, 10);
+    expect(parseDriverValue("-2", "percent")).toBeCloseTo(-0.02, 10);
+  });
+
+  it("parses a typed day count as a plain number", () => {
+    expect(parseDriverValue("45", "days")).toBe(45);
+  });
+
+  it("parses currency the same way parseMoney does", () => {
+    expect(parseDriverValue("(2,500)", "currency")).toBe(-2500);
+  });
+
+  it("rejects unparseable input for every unit", () => {
+    for (const unit of ["percent", "days", "currency"] as const) {
+      expect(parseDriverValue("nonsense", unit)).toBeNull();
+      expect(parseDriverValue("", unit)).toBeNull();
+    }
+  });
+
+  it("round-trips every unit through the editor's display value without drift", () => {
+    const cases: { value: number; unit: DriverUnit }[] = [
+      { value: 0.0345, unit: "percent" },
+      { value: 0.3, unit: "percent" },
+      { value: -0.02, unit: "percent" },
+      { value: 45, unit: "days" },
+      { value: 0, unit: "days" },
+      { value: 125000, unit: "currency" },
+      { value: -500, unit: "currency" },
+    ];
+    for (const { value, unit } of cases) {
+      const edited = driverEditValue(value, unit);
+      const parsed = parseDriverValue(edited, unit);
+      expect(parsed).not.toBeNull();
+      expect(parsed as number).toBeCloseTo(value, 6);
+    }
+  });
+
+  it("round-trips the full formatted display value too, % sign and all", () => {
+    const formatted = formatDriverValue(0.0345, "percent");
+    expect(parseDriverValue(formatted, "percent")).toBeCloseTo(0.0345, 10);
   });
 });

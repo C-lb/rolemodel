@@ -12,6 +12,18 @@ interface Props {
   onCommit: (value: number) => void;
   onReset: () => void;
   onInspect: () => void;
+  /**
+   * Display, parse and edit-seed conventions, overridable per call site so this one
+   * editing surface serves more than money. All three default to the money convention,
+   * so an existing call site that supplies none of them behaves exactly as before.
+   * The driver grid (Task 7) supplies a percent, days or currency variant of each so a
+   * driver edits through this exact contract rather than a second editing path.
+   */
+  format?: (value: number | undefined) => string;
+  parse?: (input: string) => number | null;
+  toEditable?: (value: number) => string;
+  /** Overrides the taxonomy label lookup, for a canonicalKey that names a driver rather than a line item. */
+  label?: string;
 }
 
 /**
@@ -23,7 +35,16 @@ const DOUBLE_CLICK_WINDOW_MS = 250;
 
 const LOW_CONFIDENCE = 0.6;
 
-export function EditableCell({ cell, onCommit, onReset, onInspect }: Props) {
+export function EditableCell({
+  cell,
+  onCommit,
+  onReset,
+  onInspect,
+  format = formatMoney,
+  parse = parseMoney,
+  toEditable = String,
+  label: labelOverride,
+}: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [invalid, setInvalid] = useState(false);
@@ -62,7 +83,7 @@ export function EditableCell({ cell, onCommit, onReset, onInspect }: Props) {
     if (!editable) return;
     cancelPendingInspect();
     settled.current = false;
-    setDraft(cell.value === undefined ? "" : String(cell.value));
+    setDraft(cell.value === undefined ? "" : toEditable(cell.value));
     setInvalid(false);
     setEditing(true);
   }
@@ -85,7 +106,7 @@ export function EditableCell({ cell, onCommit, onReset, onInspect }: Props) {
 
   function commit(input: HTMLInputElement) {
     if (settled.current) return;
-    const parsed = parseMoney(draft);
+    const parsed = parse(draft);
     if (parsed === null) {
       setInvalid(true);
       return;
@@ -95,7 +116,7 @@ export function EditableCell({ cell, onCommit, onReset, onInspect }: Props) {
     onCommit(parsed);
   }
 
-  const label = lineItem(cell.canonicalKey)?.label ?? cell.canonicalKey;
+  const label = labelOverride ?? lineItem(cell.canonicalKey)?.label ?? cell.canonicalKey;
 
   if (editing) {
     return (
@@ -161,7 +182,7 @@ export function EditableCell({ cell, onCommit, onReset, onInspect }: Props) {
           <button
             ref={figureRef}
             type="button"
-            aria-label={`${label}, ${cell.periodKey}: ${formatMoney(cell.value)}`}
+            aria-label={`${label}, ${cell.periodKey}: ${format(cell.value)}`}
             onClick={(e) => {
               // A keyboard activation carries no click count, so it inspects at once.
               if (e.detail === 0) { onInspect(); return; }
@@ -185,7 +206,7 @@ export function EditableCell({ cell, onCommit, onReset, onInspect }: Props) {
               cell.value === undefined ? "text-neutral-500" : "",
             ].join(" ")}
           >
-            {formatMoney(cell.value)}
+            {format(cell.value)}
           </button>
         </Tooltip>
 

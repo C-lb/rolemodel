@@ -149,6 +149,41 @@ describe("EditableCell", () => {
     expect(screen.getByRole<HTMLInputElement>("textbox").value).toBe("-2500");
   });
 
+  it("uses a supplied format/parse/toEditable set instead of money, for a unit other than currency", () => {
+    // The driver grid reuses this exact contract for percent, days and currency
+    // drivers (Task 7): same component, same keyboard and validation behaviour,
+    // a different display and parsing convention supplied by the caller.
+    const onCommit = vi.fn();
+    render(
+      <table><tbody><tr>
+        <EditableCell
+          cell={cell({ value: 0.0345 })}
+          onCommit={onCommit}
+          onReset={vi.fn()}
+          onInspect={vi.fn()}
+          format={(v) => (v === undefined ? "—" : `${(v * 100).toFixed(2)}%`)}
+          parse={(input) => {
+            const n = Number(input.replace(/%/g, "").trim());
+            return Number.isFinite(n) ? n / 100 : null;
+          }}
+          toEditable={(v) => String(v * 100)}
+        />
+      </tr></tbody></table>,
+    );
+    expect(screen.getByText("3.45%")).toBeTruthy();
+    fireEvent.doubleClick(screen.getByText("3.45%"));
+    const input = screen.getByRole<HTMLInputElement>("textbox");
+    expect(input.value).toBe("3.45");
+    fireEvent.change(input, { target: { value: "5" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onCommit).toHaveBeenCalledWith(0.05);
+  });
+
+  it("uses a supplied label override instead of the taxonomy lookup", () => {
+    renderCell({ label: "Revenue growth" });
+    expect(screen.getByLabelText(/Revenue growth, FY2024/)).toBeTruthy();
+  });
+
   it("refuses to open an editor on a forecast cell, on double click or Enter", () => {
     renderCell({ cell: cell({ source: "forecast", extractedValue: undefined, confidence: undefined }) });
     const figure = screen.getByText("1,000");
