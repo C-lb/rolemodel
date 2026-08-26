@@ -158,3 +158,37 @@ this milestone: a comment that names a number as wrong and then works around it 
 disclosure, it's a place the investigation stopped short. Once the underlying seeding bug was
 fixed, the axis was re-centred on the correct 0.4 and the comment was deleted rather than
 updated, since there is no longer anything to explain away.
+
+## Known limitations at the close of M3
+
+These were surfaced during final review and adjudicated as acceptable to ship, not
+discovered afterward. Each is recorded with what it costs.
+
+**Re-seeding drivers is per scenario.** A workspace with five scenarios needs five presses
+of "Re-seed drivers." This is friction rather than a defect: the blocking
+`forecast_drivers_missing` finding fires per scenario, so nothing is silently wrong, and a
+single button that overwrote five scenarios' drivers at once would need a confirmation step
+it does not have.
+
+**`setForecastHorizon` derives its window from the current latest historical year, so on a
+stale scenario it disagrees with the stored driver rows.** This was traced rather than
+assumed, and it is not data loss in either direction. Growing the horizon computes a
+last-existing period beyond every stored row, so nothing is written and no duplicates
+appear. Shrinking removes only periods the new horizon no longer forecasts, which are the
+same rows a current scenario would lose.
+
+The consequence worth flagging plainly: shrinking the horizon on a stale scenario can make
+the stored rows cover the new window, which clears the blocking finding without a re-seed.
+The forecast then runs on drivers derived against an older base year. Every value it uses is
+visible in the driver grid, so the numbers are stale rather than fabricated — the
+distinction that made this shippable — but a user who shrinks the horizon to clear a warning
+gets a forecast built on last year's assumptions without being told. The natural fix is to
+have `setForecastHorizon` compare the horizon's base year against the scenario's driver
+provenance and re-raise `forecast_drivers_missing` when they disagree, instead of only
+checking row coverage.
+
+**The end-to-end specs are order-coupled and require `workers: 1`.** The horizon spec
+mutates shared state and restores it, and the re-seed walk is deliberately last because it
+restores the state the other specs assume. `playwright.config.ts` carries a comment saying
+so. The cost is a speed ceiling, not a correctness risk: this suite cannot be parallelised
+without giving each spec its own isolated workspace fixture.
