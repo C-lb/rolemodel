@@ -1,8 +1,6 @@
 "use server";
 
-import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import * as schema from "@/db/schema";
 import { realDeps } from "@/server/deps";
 import { ingestAndExtract, setOverride, type ActionResult } from "@/server/documents";
 import { remapFact } from "@/server/remap";
@@ -17,14 +15,13 @@ import {
   fillRight,
   setForecastHorizon,
 } from "@/server/scenarios";
+import { buildForecastInput } from "@/server/forecast";
 import { explainRatio as explain, type RatioReading } from "@/server/interpretation";
 import { computeRatios, type RatioResult } from "@/model/ratios/compute";
 import { loadWorkspace } from "@/server/documents";
 import type { AveragingMode } from "@/model/ratios/types";
 import type { ForecastInput } from "@/model/forecast/engine";
-import type { DriverBasis } from "@/model/forecast/seed";
 import { sensitivityGrid, type Axis, type SensitivityOutput, type SensitivityResult } from "@/model/forecast/sensitivity";
-import { extendAnnualPeriods, sortPeriodsMostRecentFirst } from "@/model/periods";
 
 const DB_ERROR_REMEDIATION =
   "Try again. If it keeps happening, check the terminal running the app for the full database error.";
@@ -218,34 +215,13 @@ export async function runSensitivityAction(
 ): Promise<ActionResult<SensitivityResult>> {
   const deps = realDeps();
   let ws: Awaited<ReturnType<typeof loadWorkspace>>;
+  let input: ForecastInput;
   try {
     ws = await loadWorkspace(deps, workspaceId);
+    input = await buildForecastInput(deps, workspaceId, scenarioId);
   } catch (error) {
     return { ok: false, code: "db_error", message: (error as Error).message, remediation: DB_ERROR_REMEDIATION };
   }
-
-  const [workspaceRow] = deps.db.select().from(schema.workspaces).where(eq(schema.workspaces.id, workspaceId)).all();
-  if (!workspaceRow) {
-    return { ok: false, code: "not_found", message: "No such workspace.", remediation: "Reload the page and try again." };
-  }
-
-  const historicalPeriods = ws.periods;
-  const latest = sortPeriodsMostRecentFirst(historicalPeriods)[0];
-  const forecastPeriods = latest !== undefined ? extendAnnualPeriods(latest, workspaceRow.forecastHorizon) : [];
-
-  const driverRows = deps.db.select().from(schema.drivers).where(eq(schema.drivers.scenarioId, scenarioId)).all();
-  const driverIndex = new Map(driverRows.map((r) => [`${r.key}::${r.periodKey}`, r]));
-
-  const input: ForecastInput = {
-    historicalPeriods,
-    forecastPeriods,
-    valueAt: (key, period) => ws.cell(key, period).value,
-    driverAt: (key, period) => driverIndex.get(`${key}::${period}`)?.value,
-    driverBasisAt: (key, period) => {
-      const basis = driverIndex.get(`${key}::${period}`)?.basis;
-      return basis === "derived" || basis === "default" ? (basis as DriverBasis) : undefined;
-    },
-  };
 
   const result = sensitivityGrid(input, rowAxis, columnAxis, output, ws.customRatios, ws.averagingMode);
   return { ok: true, data: result };

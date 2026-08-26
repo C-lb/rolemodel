@@ -50,6 +50,13 @@ interface Props {
   averagingMode: AveragingMode;
   /** Absent only in a test that predates the forecast tab; production always supplies it. */
   forecast?: ForecastPanelData;
+  /**
+   * Whether `ratios` already carries the active scenario's forecast columns — decided
+   * on the server, alongside `ratios` itself, so the client never re-derives it from
+   * `forecast`'s own shape. Also what the "excludes forecast periods" caption on a
+   * ratio card's generated reading is gated on.
+   */
+  hasForecast?: boolean;
 }
 
 type WorkspaceView = "statements" | "ratios" | "forecast";
@@ -92,7 +99,7 @@ const findingId = (f: Finding) => `${f.code}:${f.periodKey}:${f.keys.join(",")}`
 
 export function WorkspaceScreen({
   workspaceId, documentName, periods, findings, statements, unmapped,
-  ratios, customRatios, averagingMode, forecast = EMPTY_FORECAST,
+  ratios, customRatios, averagingMode, forecast = EMPTY_FORECAST, hasForecast = false,
 }: Props) {
   const [inspected, setInspected] = useState<Cell | null>(null);
   const [view, setView] = useState<WorkspaceView>("statements");
@@ -246,31 +253,6 @@ export function WorkspaceScreen({
     [factsAndOverrides, periods],
   );
 
-  // Ratios gain forecast columns through the same workspace forecast layer the model
-  // already builds (`buildWorkspace`'s `forecast` input) - never a second path (spec
-  // §7). The layer only exists while a scenario's forecast has actually succeeded;
-  // a blocked forecast leaves the Ratios tab exactly as it was before this task.
-  const hasForecast = forecast.activeScenarioId !== null && forecast.ok && forecast.forecastPeriods.length > 0;
-  const forecastValueIndex = useMemo(
-    () => new Map(forecast.cells.map((c) => [cellId(c.canonicalKey, c.periodKey), c.value])),
-    [forecast.cells],
-  );
-  const ratiosWorkspace = useMemo(() => {
-    if (!hasForecast) return previewWorkspace;
-    return buildWorkspace({
-      periods,
-      ...factsAndOverrides,
-      forecast: {
-        periods: forecast.forecastPeriods,
-        valueAt: (key, period) => forecastValueIndex.get(cellId(key, period)),
-      },
-    });
-  }, [hasForecast, previewWorkspace, periods, factsAndOverrides, forecast.forecastPeriods, forecastValueIndex]);
-  const displayRatios = useMemo(
-    () => (hasForecast ? computeRatios({ workspace: ratiosWorkspace, mode: averagingMode, custom: customRatios }) : ratios),
-    [hasForecast, ratiosWorkspace, averagingMode, customRatios, ratios],
-  );
-
   function previewExpression(expression: string): RatioPeriodResult[] {
     const computed = computeRatios({
       workspace: previewWorkspace,
@@ -357,10 +339,10 @@ export function WorkspaceScreen({
   }
 
   const visible = findings.filter((f) => !dismissed.has(findingId(f)));
-  const builtIn = displayRatios.filter((r) => !r.isCustom);
+  const builtIn = ratios.filter((r) => !r.isCustom);
   const shown = coreOnly ? builtIn.filter((r) => CORE_KEYS.includes(r.key)) : builtIn;
-  const custom = displayRatios.filter((r) => r.isCustom);
-  const decomposition = dupont(displayRatios, periods[0] ?? "");
+  const custom = ratios.filter((r) => r.isCustom);
+  const decomposition = dupont(ratios, periods[0] ?? "");
   const hasFigures = STATEMENT_TITLES.some(([kind]) =>
     statements[kind].some((row) => row.cells.some((c) => c.value !== undefined)),
   );

@@ -3,7 +3,8 @@ import { render, screen, fireEvent, within } from "@testing-library/react";
 import { ToastProvider } from "@/ui/ToastProvider";
 import { WorkspaceScreen } from "./WorkspaceScreen";
 import type { ForecastPanelData } from "./WorkspaceForecast";
-import { computeRatios } from "@/model/ratios/compute";
+import { computeRatios, type RatioResult } from "@/model/ratios/compute";
+import { buildWorkspace } from "@/model/workspace";
 import { fixtureWorkspace } from "@/model/ratios/fixtures";
 import {
   selectScenarioAction,
@@ -91,8 +92,54 @@ function blockedForecast(): ForecastPanelData {
   };
 }
 
+/**
+ * Ratios are computed server-side in production (`page.tsx`): when a scenario's
+ * forecast has succeeded, the workspace fed to `computeRatios` already carries the
+ * forecast layer, and `WorkspaceScreen` receives the finished values plus a
+ * `hasForecast` flag rather than deriving either itself. This mirrors that seam for
+ * the fixture history, the same way `page.tsx` does it.
+ */
+function ratiosFor(forecast: ForecastPanelData): RatioResult[] {
+  const ws = fixtureWorkspace();
+  if (!forecast.ok || forecast.activeScenarioId === null) {
+    return computeRatios({ workspace: ws, mode: "ending", custom: [] });
+  }
+  // The fixture's own facts, read back out through its cells - the same technique
+  // `page.tsx`'s `factsAndOverridesFrom` uses, so this test exercises the real
+  // `buildWorkspace` forecast layer rather than a shortcut that skips widening
+  // `periods` to include the forecast columns.
+  const facts = [];
+  for (const kind of ["income", "balance", "cashflow"] as const) {
+    for (const row of ws.statement(kind)) {
+      for (const cell of row.cells) {
+        if (cell.extractedValue !== undefined) {
+          facts.push({
+            canonicalKey: cell.canonicalKey, periodKey: cell.periodKey, value: cell.extractedValue,
+            confidence: cell.confidence ?? 1,
+            provenance: cell.provenance ?? {
+              page: null, sheet: null, locator: "", rawLabel: "", rawValue: "",
+              scaleFactor: 1, scaleEvidence: "", signFlipped: false,
+            },
+          });
+        }
+      }
+    }
+  }
+  const withForecast = buildWorkspace({
+    periods: ws.periods,
+    facts,
+    overrides: [],
+    forecast: {
+      periods: forecast.forecastPeriods,
+      valueAt: (key, period) => forecast.cells.find((c) => c.canonicalKey === key && c.periodKey === period)?.value,
+    },
+  });
+  return computeRatios({ workspace: withForecast, mode: "ending", custom: [] });
+}
+
 function renderScreen(forecast: ForecastPanelData) {
   const ws = fixtureWorkspace();
+  const hasForecast = forecast.ok && forecast.activeScenarioId !== null;
   return render(
     <ToastProvider>
       <WorkspaceScreen
@@ -102,10 +149,11 @@ function renderScreen(forecast: ForecastPanelData) {
         findings={ws.findings}
         unmapped={[]}
         statements={{ income: ws.statement("income"), balance: ws.statement("balance"), cashflow: ws.statement("cashflow") }}
-        ratios={computeRatios({ workspace: ws, mode: "ending", custom: [] })}
+        ratios={ratiosFor(forecast)}
         customRatios={[]}
         averagingMode="ending"
         forecast={forecast}
+        hasForecast={hasForecast}
       />
     </ToastProvider>,
   );
@@ -242,5 +290,71 @@ describe("ratios over the forecast", () => {
     openRatios();
 
     expect(screen.queryByText(/Excludes forecast periods/)).toBeNull();
+  });
+});
+
+/**
+ * The registry completeness test in `tooltips.test.ts` can only see a key that
+ * exists: it checks "every `CONTROL_KEYS` entry has a call site" and the reverse, but
+ * a control that never got a key at all - the actual shape of the bug this task
+ * shipped once (nine sensitivity controls plus "Run sensitivity" and "Set up
+ * scenarios" had no `Tooltip` wrapper and no entry) - is invisible to it either way.
+ *
+ * There is no honest way to generalise "every interactive control has a tooltip"
+ * into a blanket assertion: the codebase does not actually follow that rule.
+ * `DriverGrid`'s per-cell value button and `ScenarioBar`'s inline "Create"/"Save"
+ * confirm buttons are deliberately untooltipped (the row label and the add/rename
+ * control that opened them carry the explanation instead), so a blanket check would
+ * need its own hand-maintained exemption list - which has exactly the same blind
+ * spot as `CONTROL_KEYS` itself: a new control could be added to neither list.
+ *
+ * What IS honest: a scoped regression test, behavioural rather than textual, over
+ * the specific set of controls this task introduced. It does not generalise to a
+ * future control outside this list, and that limitation is deliberate rather than
+ * an oversight - see the paragraph above.
+ */
+describe("tooltip coverage on this task's new controls", () => {
+  const NEW_CONTROLS = [
+    "Sensitivity row driver",
+    "Sensitivity row minimum",
+    "Sensitivity row maximum",
+    "Sensitivity row steps",
+    "Sensitivity column driver",
+    "Sensitivity column minimum",
+    "Sensitivity column maximum",
+    "Sensitivity column steps",
+    "Sensitivity output metric",
+    "Sensitivity output period",
+  ] as const;
+
+  it("wraps every sensitivity input and select in a Tooltip", () => {
+    renderScreen(baseForecast());
+    openForecast();
+
+    for (const label of NEW_CONTROLS) {
+      const control = screen.getByLabelText(label);
+      fireEvent.focus(control);
+      expect(screen.getByRole("tooltip")).toBeTruthy();
+      fireEvent.blur(control);
+    }
+  });
+
+  it("wraps \"Set up scenarios\" in a Tooltip", () => {
+    const noScenariosYet: ForecastPanelData = {
+      scenarios: [], activeScenarioId: null, horizon: 5, forecastPeriods: [], drivers: [], ok: false, findings: [], cells: [],
+    };
+    renderScreen(noScenariosYet);
+    openForecast();
+    const setup = screen.getByRole("button", { name: "Set up scenarios" });
+    fireEvent.focus(setup);
+    expect(screen.getByRole("tooltip")).toBeTruthy();
+  });
+
+  it("wraps \"Run sensitivity\" in a Tooltip", () => {
+    renderScreen(baseForecast());
+    openForecast();
+    const run = screen.getByRole("button", { name: "Run sensitivity" });
+    fireEvent.focus(run);
+    expect(screen.getByRole("tooltip")).toBeTruthy();
   });
 });

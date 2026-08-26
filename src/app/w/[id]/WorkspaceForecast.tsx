@@ -16,6 +16,8 @@ import { DriverGrid, type DriverRowData } from "@/ui/DriverGrid";
 import { ForecastStatement, type ForecastCellData, type ForecastStatementRow } from "@/ui/ForecastStatement";
 import { SensitivityGrid } from "@/ui/SensitivityGrid";
 import { Banner } from "@/ui/Banner";
+import { Tooltip } from "@/ui/Tooltip";
+import { tooltip } from "@/ui/tooltips";
 import { useToast } from "@/ui/ToastProvider";
 import {
   createScenarioAction,
@@ -276,14 +278,16 @@ export function WorkspaceForecast({
             : "This workspace has no scenarios yet. Creating one seeds a Base, Bull and Bear scenario with drivers derived from this workspace's history."}
         </p>
         {historicalPeriods.length > 0 && (
-          <button
-            type="button"
-            onClick={() => perform(() => createScenarioAction(workspaceId, ""), () => toast.show("Scenarios created"))}
-            disabled={saving}
-            className="w-fit whitespace-nowrap rounded-[10px] border border-white/10 px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:text-neutral-600"
-          >
-            Set up scenarios
-          </button>
+          <Tooltip label={tooltip("control.forecast_setup")}>
+            <button
+              type="button"
+              onClick={() => perform(() => createScenarioAction(workspaceId, ""), () => toast.show("Scenarios created"))}
+              disabled={saving}
+              className="w-fit whitespace-nowrap rounded-[10px] border border-white/10 px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:text-neutral-600"
+            >
+              Set up scenarios
+            </button>
+          </Tooltip>
         )}
       </div>
     );
@@ -426,125 +430,147 @@ export function WorkspaceForecast({
             <div className="flex flex-wrap items-end gap-4 rounded-2xl border border-white/[0.06] bg-neutral-900/60 p-4 text-xs">
               <label className="flex flex-col gap-1">
                 <span className="text-neutral-400">Row driver</span>
-                <select
-                  aria-label="Sensitivity row driver"
-                  value={rowDriver}
-                  onChange={(e) => setRowDriver(e.target.value)}
-                  className="rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
-                >
-                  {DRIVER_KEYS.map((key) => (
-                    <option key={key} value={key}>{driverDef(key)?.label ?? key}</option>
-                  ))}
-                </select>
+                <Tooltip label={tooltip("control.sensitivity_row_driver")}>
+                  <select
+                    aria-label="Sensitivity row driver"
+                    value={rowDriver}
+                    onChange={(e) => setRowDriver(e.target.value)}
+                    className="rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
+                  >
+                    {DRIVER_KEYS.map((key) => (
+                      <option key={key} value={key}>{driverDef(key)?.label ?? key}</option>
+                    ))}
+                  </select>
+                </Tooltip>
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-neutral-400">Row min</span>
-                <input
-                  aria-label="Sensitivity row minimum"
-                  type="number"
-                  value={rowMin}
-                  onChange={(e) => setRowMin(Number(e.target.value))}
-                  className="w-20 rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
-                />
+                <Tooltip label={tooltip("control.sensitivity_row_min")}>
+                  <input
+                    aria-label="Sensitivity row minimum"
+                    type="number"
+                    value={rowMin}
+                    onChange={(e) => setRowMin(Number(e.target.value))}
+                    className="w-20 rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
+                  />
+                </Tooltip>
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-neutral-400">Row max</span>
-                <input
-                  aria-label="Sensitivity row maximum"
-                  type="number"
-                  value={rowMax}
-                  onChange={(e) => setRowMax(Number(e.target.value))}
-                  className="w-20 rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
-                />
+                <Tooltip label={tooltip("control.sensitivity_row_max")}>
+                  <input
+                    aria-label="Sensitivity row maximum"
+                    type="number"
+                    value={rowMax}
+                    onChange={(e) => setRowMax(Number(e.target.value))}
+                    className="w-20 rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
+                  />
+                </Tooltip>
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-neutral-400">Row steps</span>
-                <select
-                  aria-label="Sensitivity row steps"
-                  value={rowSteps}
-                  onChange={(e) => setRowSteps(Number(e.target.value) as 3 | 5 | 7)}
-                  className="rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
-                >
-                  {STEP_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
-                </select>
+                <Tooltip label={tooltip("control.sensitivity_row_steps")}>
+                  <select
+                    aria-label="Sensitivity row steps"
+                    value={rowSteps}
+                    onChange={(e) => setRowSteps(Number(e.target.value) as 3 | 5 | 7)}
+                    className="rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
+                  >
+                    {STEP_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </Tooltip>
               </label>
 
               <label className="flex flex-col gap-1">
                 <span className="text-neutral-400">Column driver</span>
-                <select
-                  aria-label="Sensitivity column driver"
-                  value={colDriver}
-                  onChange={(e) => setColDriver(e.target.value)}
-                  className="rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
-                >
-                  {DRIVER_KEYS.map((key) => (
-                    <option key={key} value={key}>{driverDef(key)?.label ?? key}</option>
-                  ))}
-                </select>
+                <Tooltip label={tooltip("control.sensitivity_column_driver")}>
+                  <select
+                    aria-label="Sensitivity column driver"
+                    value={colDriver}
+                    onChange={(e) => setColDriver(e.target.value)}
+                    className="rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
+                  >
+                    {DRIVER_KEYS.map((key) => (
+                      <option key={key} value={key}>{driverDef(key)?.label ?? key}</option>
+                    ))}
+                  </select>
+                </Tooltip>
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-neutral-400">Column min</span>
-                <input
-                  aria-label="Sensitivity column minimum"
-                  type="number"
-                  value={colMin}
-                  onChange={(e) => setColMin(Number(e.target.value))}
-                  className="w-20 rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
-                />
+                <Tooltip label={tooltip("control.sensitivity_column_min")}>
+                  <input
+                    aria-label="Sensitivity column minimum"
+                    type="number"
+                    value={colMin}
+                    onChange={(e) => setColMin(Number(e.target.value))}
+                    className="w-20 rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
+                  />
+                </Tooltip>
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-neutral-400">Column max</span>
-                <input
-                  aria-label="Sensitivity column maximum"
-                  type="number"
-                  value={colMax}
-                  onChange={(e) => setColMax(Number(e.target.value))}
-                  className="w-20 rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
-                />
+                <Tooltip label={tooltip("control.sensitivity_column_max")}>
+                  <input
+                    aria-label="Sensitivity column maximum"
+                    type="number"
+                    value={colMax}
+                    onChange={(e) => setColMax(Number(e.target.value))}
+                    className="w-20 rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
+                  />
+                </Tooltip>
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-neutral-400">Column steps</span>
-                <select
-                  aria-label="Sensitivity column steps"
-                  value={colSteps}
-                  onChange={(e) => setColSteps(Number(e.target.value) as 3 | 5 | 7)}
-                  className="rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
-                >
-                  {STEP_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
-                </select>
+                <Tooltip label={tooltip("control.sensitivity_column_steps")}>
+                  <select
+                    aria-label="Sensitivity column steps"
+                    value={colSteps}
+                    onChange={(e) => setColSteps(Number(e.target.value) as 3 | 5 | 7)}
+                    className="rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
+                  >
+                    {STEP_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </Tooltip>
               </label>
 
               <label className="flex flex-col gap-1">
                 <span className="text-neutral-400">Output metric</span>
-                <select
-                  aria-label="Sensitivity output metric"
-                  value={outputMetric}
-                  onChange={(e) => setOutputMetric(e.target.value)}
-                  className="rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
-                >
-                  {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
+                <Tooltip label={tooltip("control.sensitivity_output_metric")}>
+                  <select
+                    aria-label="Sensitivity output metric"
+                    value={outputMetric}
+                    onChange={(e) => setOutputMetric(e.target.value)}
+                    className="rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
+                  >
+                    {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </Tooltip>
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-neutral-400">Output period</span>
-                <select
-                  aria-label="Sensitivity output period"
-                  value={outputPeriod}
-                  onChange={(e) => setOutputPeriod(e.target.value)}
-                  className="rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
-                >
-                  {forecast.forecastPeriods.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
+                <Tooltip label={tooltip("control.sensitivity_output_period")}>
+                  <select
+                    aria-label="Sensitivity output period"
+                    value={outputPeriod}
+                    onChange={(e) => setOutputPeriod(e.target.value)}
+                    className="rounded-[10px] border border-white/10 bg-neutral-900 px-2 py-1.5 text-neutral-100"
+                  >
+                    {forecast.forecastPeriods.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </Tooltip>
               </label>
 
-              <button
-                type="button"
-                onClick={runSensitivity}
-                disabled={runningSensitivity}
-                className="whitespace-nowrap rounded-[10px] border border-white/10 px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:text-neutral-600"
-              >
-                Run sensitivity
-              </button>
+              <Tooltip label={tooltip("control.sensitivity_run")}>
+                <button
+                  type="button"
+                  onClick={runSensitivity}
+                  disabled={runningSensitivity}
+                  className="whitespace-nowrap rounded-[10px] border border-white/10 px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:text-neutral-600"
+                >
+                  Run sensitivity
+                </button>
+              </Tooltip>
             </div>
 
             {sensitivityError && (

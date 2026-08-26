@@ -76,6 +76,18 @@ export const CONTROL_KEYS = [
   "control.held_at_zero_row",
   "control.sensitivity_base_cell",
   "control.sensitivity_shading",
+  "control.forecast_setup",
+  "control.sensitivity_row_driver",
+  "control.sensitivity_row_min",
+  "control.sensitivity_row_max",
+  "control.sensitivity_row_steps",
+  "control.sensitivity_column_driver",
+  "control.sensitivity_column_min",
+  "control.sensitivity_column_max",
+  "control.sensitivity_column_steps",
+  "control.sensitivity_output_metric",
+  "control.sensitivity_output_period",
+  "control.sensitivity_run",
 ] as const;
 
 const controlTooltips: Record<(typeof CONTROL_KEYS)[number], string> = {
@@ -105,6 +117,18 @@ const controlTooltips: Record<(typeof CONTROL_KEYS)[number], string> = {
   "control.held_at_zero_row": "This line is held at zero for every forecast period. Repeating a one-off figure indefinitely would be a worse default than assuming none.",
   "control.sensitivity_base_cell": "The cell matching this scenario's current driver values, outlined so it is easy to find among the grid.",
   "control.sensitivity_shading": "Cells are shaded by how far the output sits from the base case. The direction arrow and shade intensity both carry that reading, so the grid does not depend on colour alone.",
+  "control.forecast_setup": "Create a Base, Bull and Bear scenario together, with drivers derived fresh from this workspace's history. You can change any value afterwards.",
+  "control.sensitivity_row_driver": "The driver varied down the rows of the sensitivity grid.",
+  "control.sensitivity_row_min": "The lowest value the row driver takes across the grid.",
+  "control.sensitivity_row_max": "The highest value the row driver takes across the grid.",
+  "control.sensitivity_row_steps": "How many evenly spaced values the row driver takes between its minimum and maximum, from 3 to 7.",
+  "control.sensitivity_column_driver": "The driver varied across the columns of the sensitivity grid.",
+  "control.sensitivity_column_min": "The lowest value the column driver takes across the grid.",
+  "control.sensitivity_column_max": "The highest value the column driver takes across the grid.",
+  "control.sensitivity_column_steps": "How many evenly spaced values the column driver takes between its minimum and maximum, from 3 to 7.",
+  "control.sensitivity_output_metric": "The line item or ratio the grid reads back out of each of its 49 forecasts.",
+  "control.sensitivity_output_period": "The forecast period the output metric is read from.",
+  "control.sensitivity_run": "Re-run the forecast once per grid cell with the two axis drivers set to that cell's values, and read the output metric back out of each.",
 };
 
 /** Copy for figures that landed outside the taxonomy, which have no line-item definition to show. */
