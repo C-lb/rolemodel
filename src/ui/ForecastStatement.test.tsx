@@ -104,4 +104,25 @@ describe("ForecastStatement", () => {
     renderStatement();
     expect(screen.getByText("held flat")).toBeTruthy();
   });
+
+  it("still separates a ragged row's own seam correctly, rather than borrowing the first row's index", () => {
+    // This row's forecast columns start one earlier than every other row's (index 1,
+    // not 2): its own historical/forecast border must sit there, not at index 2.
+    const ragged: ForecastStatementRow = {
+      key: "ragged",
+      label: "Ragged line",
+      cells: [
+        { kind: "historical", periodKey: "FY2023", value: 10 },
+        { kind: "forecast", periodKey: "FY2024", value: 20, formula: "f", inputs: [] },
+        { kind: "forecast", periodKey: "FY2025", value: 30, formula: "f", inputs: [] },
+      ],
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    render(<ForecastStatement title="Income statement" rows={[...rows(), ragged]} onExplain={vi.fn()} />);
+    const raggedRow = screen.getByText("Ragged line").closest("tr")!;
+    const cells = raggedRow.querySelectorAll("td");
+    expect(cells[0].className).not.toMatch(/border-l/); // FY2023, historical, no seam here
+    expect(cells[1].className).toMatch(/border-l/); // FY2024, this row's own seam
+    warn.mockRestore();
+  });
 });

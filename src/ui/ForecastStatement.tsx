@@ -89,9 +89,31 @@ function Badge({ label, children }: { label: string; children: string }) {
 const HELD_FLAT_TOOLTIP = tooltip("control.held_flat_row");
 const HELD_AT_ZERO_TOOLTIP = tooltip("control.held_at_zero_row");
 
+/** Index of the first forecast-kind cell in a row, or -1 if the row has none. */
+function seamIndex(row: ForecastStatementRow): number {
+  return row.cells.findIndex((c) => c.kind === "forecast");
+}
+
 export function ForecastStatement({ title, rows, onExplain }: Props) {
   const periods = rows[0]?.cells.map((c) => c.periodKey) ?? [];
-  const firstForecastIndex = rows[0]?.cells.findIndex((c) => c.kind === "forecast") ?? -1;
+  const headerSeamIndex = rows[0] === undefined ? -1 : seamIndex(rows[0]);
+
+  // The header's seam (and its column count) can only ever reflect one row's shape —
+  // rows[0]'s — since there is exactly one header. Every other row renders its OWN
+  // seam from its own cells below, so a ragged row (a different period count, or its
+  // forecast columns starting at a different index) still separates correctly where it
+  // actually starts, rather than silently inheriting rows[0]'s boundary. This warns
+  // rather than throws, because a presentational component should not crash the page
+  // over a caller's data shape; the caller sees it in the console once, not silently.
+  if (process.env.NODE_ENV !== "production") {
+    const ragged = rows.find((row) => row.cells.length !== periods.length || seamIndex(row) !== headerSeamIndex);
+    if (ragged) {
+      console.warn(
+        `ForecastStatement: row "${ragged.key}" has a different column shape than the first row. ` +
+          "Its own historical/forecast seam is still rendered correctly, but the header periods and seam border reflect the first row only.",
+      );
+    }
+  }
 
   return (
     <section className="flex flex-col gap-3">
@@ -106,10 +128,10 @@ export function ForecastStatement({ title, rows, onExplain }: Props) {
                 <th
                   key={p}
                   scope="col"
-                  data-testid={index === firstForecastIndex ? `forecast-seam-${p}` : undefined}
+                  data-testid={index === headerSeamIndex ? `forecast-seam-${p}` : undefined}
                   className={[
                     "px-3 py-2.5 text-right font-medium text-neutral-400",
-                    index === firstForecastIndex ? "border-l border-white/10" : "",
+                    index === headerSeamIndex ? "border-l border-white/10" : "",
                   ].join(" ")}
                 >
                   {p}
@@ -118,7 +140,9 @@ export function ForecastStatement({ title, rows, onExplain }: Props) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
+            {rows.map((row) => {
+              const rowSeamIndex = seamIndex(row);
+              return (
               <tr key={row.key} className={row.isSubtotal ? "border-t border-white/[0.06] font-medium" : ""}>
                 <th scope="row" className="px-3 py-1.5 text-left align-middle font-normal">
                   <span className={row.indent ? "pl-4 text-neutral-400" : "text-neutral-200"}>{row.label}</span>
@@ -130,7 +154,7 @@ export function ForecastStatement({ title, rows, onExplain }: Props) {
                     key={cell.periodKey}
                     className={[
                       "px-2 py-1.5 text-right align-middle",
-                      index === firstForecastIndex ? "border-l border-white/10" : "",
+                      index === rowSeamIndex ? "border-l border-white/10" : "",
                     ].join(" ")}
                   >
                     {cell.kind === "forecast" ? (
@@ -141,7 +165,8 @@ export function ForecastStatement({ title, rows, onExplain }: Props) {
                   </td>
                 ))}
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

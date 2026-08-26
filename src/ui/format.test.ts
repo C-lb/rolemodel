@@ -84,6 +84,15 @@ describe("driverEditValue: the raw string a click-to-edit field seeds its draft 
     expect(driverEditValue(0.0345, "percent")).toBe("3.45");
   });
 
+  it("clears binary floating-point noise from the scaled percentage, exact string", () => {
+    // 0.035 * 100 is 3.5000000000000004 in raw JS arithmetic, 0.07 * 100 is
+    // 7.000000000000001, and 0.29 * 100 is 28.999999999999996. A user who opens the
+    // editor on a driver seeded at 3.5% must see "3.5", never that noise.
+    expect(driverEditValue(0.035, "percent")).toBe("3.5");
+    expect(driverEditValue(0.07, "percent")).toBe("7");
+    expect(driverEditValue(0.29, "percent")).toBe("29");
+  });
+
   it("shows a days driver as a plain day count", () => {
     expect(driverEditValue(45, "days")).toBe("45");
   });
@@ -116,10 +125,18 @@ describe("parseDriverValue", () => {
   });
 
   it("round-trips every unit through the editor's display value without drift", () => {
+    // 0.035, 0.07 and 0.29 are exactly the values that expose the drift: each is
+    // "dirty" under a plain `value * 100` in IEEE 754 (3.5000000000000004,
+    // 7.000000000000001, 28.999999999999996). An exact `toBe`, not `toBeCloseTo`, is
+    // the point: a numeric tolerance would pass even if `driverEditValue` still
+    // returned the noisy string, since parsing it back divides the noise away again.
     const cases: { value: number; unit: DriverUnit }[] = [
       { value: 0.0345, unit: "percent" },
       { value: 0.3, unit: "percent" },
       { value: -0.02, unit: "percent" },
+      { value: 0.035, unit: "percent" },
+      { value: 0.07, unit: "percent" },
+      { value: 0.29, unit: "percent" },
       { value: 45, unit: "days" },
       { value: 0, unit: "days" },
       { value: 125000, unit: "currency" },
@@ -127,9 +144,9 @@ describe("parseDriverValue", () => {
     ];
     for (const { value, unit } of cases) {
       const edited = driverEditValue(value, unit);
+      expect(edited).not.toMatch(/0000000|9999999/);
       const parsed = parseDriverValue(edited, unit);
-      expect(parsed).not.toBeNull();
-      expect(parsed as number).toBeCloseTo(value, 6);
+      expect(parsed).toBe(value);
     }
   });
 

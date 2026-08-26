@@ -104,6 +104,20 @@ export function ScenarioBar({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [horizonDraft, setHorizonDraft] = useState(String(horizon));
+  // Tracks the `horizon` this draft was last synced to, so a prop change can be
+  // detected and applied during render (React's own "adjust state when a prop
+  // changes" pattern) rather than in a useEffect, which would commit the stale value
+  // for one paint and then cascade a second render to fix it.
+  const [syncedHorizon, setSyncedHorizon] = useState(horizon);
+
+  // `horizonDraft` is otherwise only ever written by the user typing or by
+  // `commitHorizon`'s own clamp: if the parent rejects a change, resets it (a scenario
+  // switch, an undo), or clamps it differently than this component would, the field
+  // would show a stale number forever without this resync.
+  if (horizon !== syncedHorizon) {
+    setSyncedHorizon(horizon);
+    setHorizonDraft(String(horizon));
+  }
 
   function commitAdd() {
     const trimmed = draftName.trim();
@@ -127,10 +141,15 @@ export function ScenarioBar({
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
-      <div role="tablist" aria-label="Scenarios" className="flex flex-wrap items-center gap-1.5">
+      <div aria-label="Scenarios" className="flex flex-wrap items-center gap-1.5">
         {scenarios.map((s) => {
           const active = s.id === activeId;
           const renaming = renamingId === s.id;
+          // The base scenario's status has to reach an accessible name somewhere: a
+          // visible "(base)" suffix inside the button is fine for a sighted user, but
+          // that text is silent to a screen reader once the button also carries a
+          // more specific aria-label, so the status is folded into the label itself.
+          const selectLabel = s.isBase ? `${s.name}, base scenario` : s.name;
 
           if (renaming) {
             return (
@@ -161,23 +180,38 @@ export function ScenarioBar({
           return (
             <span
               key={s.id}
-              role="tab"
-              tabIndex={0}
-              aria-selected={active}
-              aria-label={s.name}
-              onClick={() => onSelect(s.id)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(s.id); }
-              }}
               className={[
-                "inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[10px] border px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400",
+                "inline-flex items-center gap-1 whitespace-nowrap rounded-[10px] border px-1.5 py-1 text-sm font-medium transition-colors",
                 active
                   ? "border-sky-400/40 bg-sky-500/10 text-sky-200"
-                  : "border-white/10 text-neutral-300 hover:bg-white/[0.06]",
+                  : "border-white/10 text-neutral-300",
               ].join(" ")}
             >
+              {/*
+                A plain button with aria-current, not the ARIA tabs pattern: this list
+                has no roving tabindex and no tabpanel, so claiming role="tab" would
+                promise keyboard behaviour it doesn't deliver. A button carrying
+                aria-current="true" is the honest, simpler shape for "select this one
+                of several", and it also can't have another button nested inside it the
+                way a single "tab" element could.
+              */}
               <Tooltip label={tooltip("control.scenario_tab")}>
-                <span>{s.name}{s.isBase && <span className="ml-1.5 text-xs text-neutral-500">(base)</span>}</span>
+                <button
+                  type="button"
+                  aria-current={active ? "true" : undefined}
+                  aria-label={selectLabel}
+                  onClick={() => onSelect(s.id)}
+                  onKeyDown={(e) => {
+                    // Real browsers already turn Enter/Space into a click for a native
+                    // button; this is belt-and-braces for the same reason the rest of
+                    // this file's controls are explicit about it.
+                    if (e.key === "Enter") { e.preventDefault(); onSelect(s.id); }
+                  }}
+                  className="rounded-[8px] px-1.5 py-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+                >
+                  {s.name}
+                  {s.isBase && <span aria-hidden="true" className="ml-1.5 text-xs text-neutral-500">(base)</span>}
+                </button>
               </Tooltip>
               <Tooltip label={tooltip("control.scenario_rename")}>
                 <TabIconButton

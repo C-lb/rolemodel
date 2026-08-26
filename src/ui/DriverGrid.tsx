@@ -65,7 +65,16 @@ function FillRightIcon() {
   );
 }
 
-/** The synthetic `Cell` `EditableCell` needs, built from a driver's own value. Driver cells are never `forecast`-sourced, so the edit surface always opens. */
+/**
+ * WORKAROUND: `EditableCell` only knows how to edit a workspace `Cell` — it has no
+ * concept of a driver. This fabricates the minimum `Cell` shape it needs so a driver
+ * value can flow through that one editing surface rather than a second one built for
+ * drivers specifically (see the file header comment on `EditableCell.tsx`'s Task 7
+ * extension). `source: "extracted"` is the only choice that keeps the cell editable:
+ * `EditableCell` refuses `"forecast"`, and a driver is never that. `extractedValue`,
+ * `confidence` and `provenance` are all genuinely absent for a driver — there is no
+ * source document behind it — so `undefined` here isn't a stand-in, it's the truth.
+ */
 function driverAsCell(canonicalKey: string, periodKey: string, value: number): Cell {
   return {
     canonicalKey,
@@ -128,6 +137,13 @@ export function DriverGrid({ rows, periods, onCommit, onFillRight }: Props) {
                     );
                   })}
                 </tr>
+                {/*
+                  WORKAROUND: `EditableCell` renders its own `<td>` (see EditableCell.tsx),
+                  so there is nowhere inside the value cell above to also put a seed
+                  marker or a fill-right button without editing that component's markup
+                  again. Each driver is therefore two table rows: the editable value row
+                  above, and this thin controls row beneath it, column-aligned with it.
+                */}
                 <tr className="border-b border-white/[0.04]">
                   <th scope="row" className="px-3 py-0.5 text-left align-middle">
                     <span className="sr-only">Seed and fill controls for {label}</span>

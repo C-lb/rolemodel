@@ -78,8 +78,14 @@ export function formatDriverValue(value: number | undefined, unit: DriverUnit): 
 /** The plain number a click-to-edit field seeds its draft with: no % sign, no grouping. */
 export function driverEditValue(value: number, unit: DriverUnit): string {
   switch (unit) {
-    case "percent":
-      return String(value * 100);
+    case "percent": {
+      // A plain `value * 100` surfaces binary floating-point noise a user never typed:
+      // 0.035 * 100 is 3.5000000000000004, not 3.5. Rounding to 12 significant digits
+      // clears that noise (well below the 2 decimal places this unit is ever edited to)
+      // without truncating a genuinely precise seeded value.
+      const scaled = Number((value * 100).toPrecision(12));
+      return String(scaled);
+    }
     case "days":
       return String(value);
     case "currency":

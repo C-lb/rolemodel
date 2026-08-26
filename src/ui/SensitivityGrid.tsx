@@ -18,7 +18,19 @@ interface Props {
 
 type Direction = "above" | "below" | "base";
 
-function DirectionIcon({ direction }: { direction: Direction }) {
+/**
+ * The glyph scales with `magnitude` (1..4) as a second, independent way to read
+ * distance from the base case: four background-opacity steps 0.12 apart are hard to
+ * rank by eye on their own, so size gives the same ranking a different, coarser channel
+ * a reader can fall back on.
+ */
+const ICON_SIZE_BY_MAGNITUDE = ["size-[0.5em]", "size-[0.62em]", "size-[0.76em]", "size-[0.92em]"];
+
+function iconSizeClass(magnitude: number): string {
+  return ICON_SIZE_BY_MAGNITUDE[Math.min(magnitude, ICON_SIZE_BY_MAGNITUDE.length) - 1] ?? ICON_SIZE_BY_MAGNITUDE[0];
+}
+
+function DirectionIcon({ direction, magnitude }: { direction: Direction; magnitude: number }) {
   if (direction === "base") {
     return (
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" className="size-[0.7em]">
@@ -28,17 +40,32 @@ function DirectionIcon({ direction }: { direction: Direction }) {
   }
   const points = direction === "above" ? "12 6 18 16 6 16" : "12 18 6 8 18 8";
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" className="size-[0.6em]">
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" className={iconSizeClass(magnitude)}>
       <polygon points={points} />
     </svg>
   );
 }
 
-/** Distance from the base value, bucketed 1..4, independent of direction. Drives shading intensity. */
+/** Distance from the base value, bucketed 1..4, independent of direction. Drives shading intensity and glyph size. */
 function magnitudeBucket(value: number, base: number, spread: number): number {
   if (spread === 0) return 0;
   const ratio = Math.min(1, Math.abs(value - base) / spread);
   return Math.max(1, Math.round(ratio * 4));
+}
+
+/**
+ * Diverging, not single-hue: `sky` above the base case, `amber` below it. This pairing
+ * is the accessible choice, not an arbitrary second colour — orange/blue is the
+ * standard colourblind-safe diverging scale (unlike red/green), and both hues are
+ * already established in this codebase (`sky` for an override figure, `amber` for a
+ * warning), so nothing new is being introduced to the palette. Direction and magnitude
+ * both still carry their own non-colour channel (the triangle glyph and its size); the
+ * colour is reinforcement, never the only signal.
+ */
+function shadeColor(direction: Direction, opacity: number): string | undefined {
+  if (direction === "above") return `rgba(56, 189, 248, ${opacity})`; // sky-400
+  if (direction === "below") return `rgba(251, 191, 36, ${opacity})`; // amber-400
+  return undefined;
 }
 
 function readableReason(reason: string): string {
@@ -104,6 +131,7 @@ export function SensitivityGrid({ result, rowLabel, columnLabel, rowUnit, column
                       : "below";
                 const magnitude = baseValue === undefined ? 0 : magnitudeBucket(cell.value, baseValue, spread);
                 const shadeOpacity = magnitude === 0 ? 0 : magnitude * 0.12;
+                const background = shadeColor(direction, shadeOpacity);
 
                 return (
                   <td
@@ -111,11 +139,7 @@ export function SensitivityGrid({ result, rowLabel, columnLabel, rowUnit, column
                     data-testid={testId}
                     data-direction={direction}
                     data-magnitude={magnitude}
-                    style={
-                      direction !== "base"
-                        ? { backgroundColor: `rgba(56, 189, 248, ${shadeOpacity})` }
-                        : undefined
-                    }
+                    style={background ? { backgroundColor: background } : undefined}
                     className={[
                       "px-2 py-1.5 text-right align-middle tabular-nums text-neutral-100",
                       cell.isBase
@@ -126,8 +150,8 @@ export function SensitivityGrid({ result, rowLabel, columnLabel, rowUnit, column
                     <Tooltip label={cell.isBase ? tooltip("control.sensitivity_base_cell") : `${rowLabel} ${formatDriverValue(r, rowUnit)}, ${columnLabel} ${formatDriverValue(result.columns[colIndex], columnUnit)}`}>
                       <span className="inline-flex items-center justify-end gap-1">
                         {direction !== "base" && (
-                          <span className={direction === "above" ? "text-sky-300" : "text-neutral-500"}>
-                            <DirectionIcon direction={direction} />
+                          <span className={direction === "above" ? "text-sky-300" : "text-amber-300"}>
+                            <DirectionIcon direction={direction} magnitude={magnitude} />
                           </span>
                         )}
                         {formatValue(cell.value)}

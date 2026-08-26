@@ -15,7 +15,7 @@ function renderBar(props: Partial<Parameters<typeof ScenarioBar>[0]> = {}) {
   const onDuplicate = vi.fn();
   const onDelete = vi.fn();
   const onHorizonChange = vi.fn();
-  render(
+  const { rerender } = render(
     <ScenarioBar
       scenarios={SCENARIOS}
       activeId="s2"
@@ -29,34 +29,45 @@ function renderBar(props: Partial<Parameters<typeof ScenarioBar>[0]> = {}) {
       {...props}
     />,
   );
-  return { onSelect, onAdd, onRename, onDuplicate, onDelete, onHorizonChange };
+  return { onSelect, onAdd, onRename, onDuplicate, onDelete, onHorizonChange, rerender };
 }
 
 describe("ScenarioBar", () => {
-  it("renders one tab per scenario", () => {
+  it("renders one selectable control per scenario", () => {
     renderBar();
-    for (const s of SCENARIOS) {
-      expect(screen.getByRole("tab", { name: new RegExp(s.name) })).toBeTruthy();
-    }
+    expect(screen.getByRole("button", { name: "Base, base scenario" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Bull" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Bear" })).toBeTruthy();
   });
 
-  it("marks the active scenario's tab and no other", () => {
+  it("marks the active scenario as current and no other, via aria-current rather than the tabs pattern", () => {
     renderBar({ activeId: "s2" });
-    expect(screen.getByRole("tab", { name: /Bull/ }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("tab", { name: /Base/ }).getAttribute("aria-selected")).toBe("false");
-    expect(screen.getByRole("tab", { name: /Bear/ }).getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("button", { name: "Bull" }).getAttribute("aria-current")).toBe("true");
+    expect(screen.getByRole("button", { name: "Base, base scenario" }).getAttribute("aria-current")).toBeNull();
+    expect(screen.getByRole("button", { name: "Bear" }).getAttribute("aria-current")).toBeNull();
   });
 
-  it("calls onSelect when a tab is clicked", () => {
+  it("gives the base scenario's accessible name its base status, since the visible marker alone is silent to a screen reader", () => {
+    renderBar();
+    expect(screen.getByRole("button", { name: "Base, base scenario" })).toBeTruthy();
+  });
+
+  it("calls onSelect when a scenario control is clicked", () => {
     const { onSelect } = renderBar();
-    fireEvent.click(screen.getByRole("tab", { name: /Bear/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Bear" }));
     expect(onSelect).toHaveBeenCalledWith("s3");
   });
 
   it("calls onSelect on keyboard activation (Enter)", () => {
     const { onSelect } = renderBar();
-    fireEvent.keyDown(screen.getByRole("tab", { name: /Base/ }), { key: "Enter" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Base, base scenario" }), { key: "Enter" });
     expect(onSelect).toHaveBeenCalledWith("s1");
+  });
+
+  it("never nests a control inside the scenario select button: rename, duplicate and delete are its siblings", () => {
+    renderBar();
+    const selectButton = screen.getByRole("button", { name: "Bull" });
+    expect(selectButton.querySelector("button")).toBeNull();
   });
 
   it("shows no delete control on the base scenario", () => {
@@ -80,6 +91,25 @@ describe("ScenarioBar", () => {
     fireEvent.change(input, { target: { value: "9" } });
     fireEvent.blur(input);
     expect(onHorizonChange).toHaveBeenCalledWith(5);
+  });
+
+  it("resyncs the horizon field when the horizon prop changes externally, e.g. a scenario switch or an undo", () => {
+    const { rerender, onSelect, onAdd, onRename, onDuplicate, onDelete, onHorizonChange } = renderBar({ horizon: 5 });
+    expect(screen.getByLabelText<HTMLInputElement>(/forecast horizon/i).value).toBe("5");
+    rerender(
+      <ScenarioBar
+        scenarios={SCENARIOS}
+        activeId="s2"
+        horizon={2}
+        onSelect={onSelect}
+        onAdd={onAdd}
+        onRename={onRename}
+        onDuplicate={onDuplicate}
+        onDelete={onDelete}
+        onHorizonChange={onHorizonChange}
+      />,
+    );
+    expect(screen.getByLabelText<HTMLInputElement>(/forecast horizon/i).value).toBe("2");
   });
 
   it("passes an in-range horizon straight through", () => {
