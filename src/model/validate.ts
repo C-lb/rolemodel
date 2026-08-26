@@ -1,5 +1,6 @@
 import { TAXONOMY, lineItem, type StatementKind } from "./taxonomy";
 import { closeEnough } from "./tolerance";
+import { isImmediatePredecessor, isRankablePeriodKey, missingPeriodsInSequence } from "./periods";
 
 export type FindingSeverity = "blocking" | "warning";
 
@@ -53,6 +54,28 @@ export function validate(input: ValidateInput): Finding[] {
     }];
   }
 
+  // Check 4: period coverage is complete and consistently ordered. Every other
+  // per-period check reads `periods` as "most recent first", which only holds for
+  // keys this model can rank — so an unrankable key is reported before anything
+  // downstream is allowed to draw a conclusion from the ordering.
+  const unrankable = periods.filter((p) => !isRankablePeriodKey(p));
+  if (unrankable.length > 0) {
+    findings.push({
+      code: "missing_periods", severity: "blocking", periodKey: null, keys: unrankable,
+      message: `${unrankable.length === 1 ? "Period" : "Periods"} ${unrankable.map((p) => `"${p}"`).join(", ")} could not be recognised, so the periods could not be put in order.`,
+      remediation: "Period labels must read FY2024 or Q2-2025. Re-run extraction; if the labels in the document are unusual, re-run over just the statement pages so the headers are unambiguous.",
+    });
+  }
+
+  const gaps = missingPeriodsInSequence(periods);
+  if (gaps.length > 0) {
+    findings.push({
+      code: "missing_periods", severity: "warning", periodKey: null, keys: gaps,
+      message: `The extracted periods skip ${gaps.join(", ")}.`,
+      remediation: "If the document reports that period, re-run extraction over its columns. Comparisons between periods either side of a gap are not made.",
+    });
+  }
+
   for (const statement of ["income", "balance", "cashflow"] as StatementKind[]) {
     if (!statementHasData(statement, periods, valueAt)) {
       findings.push({
@@ -97,7 +120,12 @@ export function validate(input: ValidateInput): Finding[] {
       }
     }
 
-    const priorPeriod = periods[i + 1];
+    // The next entry is only the prior period when both keys can be ranked AND they
+    // are genuinely adjacent. Unrankable keys collapse the sort to insertion order,
+    // and a gap in the sequence makes the movement between the two entries mean
+    // nothing — either way, comparing them would report a discrepancy that is not there.
+    const next = periods[i + 1];
+    const priorPeriod = next !== undefined && isImmediatePredecessor(period, next) ? next : undefined;
     const cashNow = valueAt("cash_and_equivalents", period);
     const cashPrior = priorPeriod ? valueAt("cash_and_equivalents", priorPeriod) : undefined;
     if (netChange !== undefined && cashNow !== undefined && cashPrior !== undefined) {

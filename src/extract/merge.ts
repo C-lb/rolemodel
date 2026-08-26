@@ -1,4 +1,6 @@
 import { lineItem, UNMAPPED_KEY } from "@/model/taxonomy";
+import { sortPeriodsMostRecentFirst } from "@/model/periods";
+import { closeEnough } from "@/model/tolerance";
 import type { Provenance } from "@/db/schema";
 import type { ExtractedFigure } from "./schema";
 
@@ -42,15 +44,6 @@ function toFact(f: ExtractedFigure): ExtractedFact {
   };
 }
 
-/** FY2024 sorts above FY2023; Q2-2025 above Q1-2025. Unrecognised keys sort last, stably. */
-function periodRank(key: string): number {
-  const fy = /^FY(\d{4})$/.exec(key);
-  if (fy) return Number(fy[1]) * 10 + 9;
-  const q = /^Q([1-4])-(\d{4})$/.exec(key);
-  if (q) return Number(q[2]) * 10 + Number(q[1]);
-  return -1;
-}
-
 interface Bucket {
   canonicalKey: string;
   periodKey: string;
@@ -85,19 +78,22 @@ export function mergeFigures(figures: ExtractedFigure[]): MergeOutput {
   const conflicts: MergeConflict[] = [];
 
   for (const { canonicalKey, periodKey, candidates } of buckets.values()) {
-    const distinct = new Set(candidates.map((c) => c.value));
     const best = [...candidates].sort((a, b) => b.confidence - a.confidence)[0];
     facts.push(best);
+    // Money is never compared with ===. Two chunks reading the same figure can
+    // differ by rounding noise (a total taken from a footnote against the same
+    // total on the face of the statement); that is one reading, not a conflict.
+    const disagrees = candidates.some((c) => !closeEnough(c.value, best.value));
     // Nothing downstream reads an unmapped figure, so two readings of one cannot
     // disagree in a way that matters. Reconciling it starts with mapping it.
-    if (distinct.size > 1 && canonicalKey !== UNMAPPED_KEY) {
+    if (disagrees && canonicalKey !== UNMAPPED_KEY) {
       conflicts.push({ canonicalKey, periodKey, candidates });
     }
   }
 
   return {
     facts,
-    periods: [...periods].sort((a, b) => periodRank(b) - periodRank(a)),
+    periods: sortPeriodsMostRecentFirst([...periods]),
     conflicts,
     unmappedLabels: [...new Set(unmappedLabels)],
   };

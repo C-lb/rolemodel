@@ -9,6 +9,7 @@ import { PROMPT_VERSION } from "@/extract/prompt";
 import { MODEL_ID } from "@/extract/client";
 import { buildWorkspace, type WorkspaceView } from "@/model/workspace";
 import { UNMAPPED_KEY } from "@/model/taxonomy";
+import { sortPeriodsMostRecentFirst } from "@/model/periods";
 
 export interface Deps {
   db: Db;
@@ -139,14 +140,6 @@ export async function ingestAndExtract(
   }
 }
 
-function periodRank(key: string): number {
-  const fy = /^FY(\d{4})$/.exec(key);
-  if (fy) return Number(fy[1]) * 10 + 9;
-  const q = /^Q([1-4])-(\d{4})$/.exec(key);
-  if (q) return Number(q[2]) * 10 + Number(q[1]);
-  return -1;
-}
-
 /** A figure the extractor could not place, carried to the UI so the user can move it. */
 export interface UnmappedFactRow {
   id: string;
@@ -189,10 +182,10 @@ export async function loadWorkspace(
       rawValue: f.provenance.rawValue,
     }));
 
-  const periods = [...new Set([
+  const periods = sortPeriodsMostRecentFirst([...new Set([
     ...factRows.map((f) => f.periodKey),
     ...overrideRows.map((o) => o.periodKey),
-  ])].sort((a, b) => periodRank(b) - periodRank(a));
+  ])]);
 
   // A conflict on a cell the user has since overridden is resolved — the override is the user
   // picking a value, which is exactly what the finding's remediation asks them to do. Mirrors

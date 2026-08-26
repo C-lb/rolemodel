@@ -72,6 +72,57 @@ describe("validate", () => {
     expect(findings.some((f) => f.code === "cashflow_tie_out" && f.periodKey === "FY2023")).toBe(false);
   });
 
+  it("does not compare cash against a prior period it cannot order", () => {
+    // Both keys are unrankable, so the sort collapses to insertion order and the two
+    // entries may be unrelated periods. Comparing them would invent a discrepancy.
+    const data = {
+      "FY24": balanced.FY2024,
+      "2023": balanced.FY2023,
+    };
+    const findings = validate({ periods: ["FY24", "2023"], valueAt: lookupFrom(data) });
+    expect(findings.some((f) => f.code === "cashflow_tie_out" && f.keys.includes("cash_and_equivalents")))
+      .toBe(false);
+  });
+
+  it("does not compare cash across a gap in the period sequence", () => {
+    // FY2022 is not FY2024's prior period, so a movement between them says nothing
+    // about FY2024's net change in cash.
+    const data = { FY2024: balanced.FY2024, FY2022: balanced.FY2023 };
+    const findings = validate({ periods: ["FY2024", "FY2022"], valueAt: lookupFrom(data) });
+    expect(findings.some((f) => f.code === "cashflow_tie_out" && f.keys.includes("cash_and_equivalents")))
+      .toBe(false);
+  });
+
+  it("still compares cash between genuinely adjacent periods", () => {
+    const broken = {
+      ...balanced,
+      FY2024: { ...balanced.FY2024, cash_from_operations: 110, net_change_in_cash: 50 },
+    };
+    const findings = validate(input({ valueAt: lookupFrom(broken) }));
+    expect(findings.some((f) => f.code === "cashflow_tie_out" && f.keys.includes("cash_and_equivalents")))
+      .toBe(true);
+  });
+
+  it("blocks on a period label it cannot order", () => {
+    const findings = validate({ periods: ["FY2024", "Q2 2025"], valueAt: lookupFrom(balanced) });
+    const finding = findings.find((f) => f.code === "missing_periods");
+    expect(finding?.severity).toBe("blocking");
+    expect(finding?.keys).toEqual(["Q2 2025"]);
+    expect(finding?.message).toContain("Q2 2025");
+  });
+
+  it("warns about a gap in an otherwise regular annual sequence", () => {
+    const data = { FY2024: balanced.FY2024, FY2022: balanced.FY2023 };
+    const findings = validate({ periods: ["FY2024", "FY2022"], valueAt: lookupFrom(data) });
+    const finding = findings.find((f) => f.code === "missing_periods");
+    expect(finding?.severity).toBe("warning");
+    expect(finding?.message).toContain("FY2023");
+  });
+
+  it("reports no period finding for a complete, orderable sequence", () => {
+    expect(validate(input()).some((f) => f.code === "missing_periods")).toBe(false);
+  });
+
   it("flags a subtotal that disagrees with its components", () => {
     const data = {
       FY2024: {

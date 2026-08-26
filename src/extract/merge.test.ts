@@ -30,6 +30,25 @@ describe("mergeFigures", () => {
     expect(out.conflicts[0].candidates).toHaveLength(2);
   });
 
+  it("treats two readings that agree within tolerance as one fact, not a conflict", () => {
+    // Rounding noise between the face of the statement and a footnote is not a
+    // disagreement. Money is compared with the tolerance helper, never with ===.
+    const out = mergeFigures([
+      figure({ value: 1_000_000 }),
+      figure({ value: 1_000_400, confidence: 0.8 }),
+    ]);
+    expect(out.conflicts).toHaveLength(0);
+    expect(out.facts).toHaveLength(1);
+  });
+
+  it("still calls a materially different second reading a conflict", () => {
+    const out = mergeFigures([
+      figure({ value: 1_000_000 }),
+      figure({ value: 1_050_000, confidence: 0.8 }),
+    ]);
+    expect(out.conflicts).toHaveLength(1);
+  });
+
   it("keeps the higher-confidence candidate as the active fact on conflict", () => {
     const out = mergeFigures([
       figure({ value: 1000, confidence: 0.4 }),
