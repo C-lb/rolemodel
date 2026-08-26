@@ -38,7 +38,7 @@ view).
 
 **Five annual periods, adjustable one to five.** Forecast periods are always `FY`, extending
 the latest historical `FY`. A workspace whose most recent period is quarterly cannot be
-forecast, and says so with a named reason (`forecast_missing_base` and related findings)
+forecast, and says so with a named reason (`forecast_not_annual`)
 rather than guessing an annualisation. Cost: a workspace with only quarterly history cannot
 forecast at all until it has a full fiscal year on record. Worth revisiting if quarterly
 forecasting becomes a real product need — it would need its own annualisation convention,
@@ -107,10 +107,18 @@ costs are stored negative in every cost-line derivation. Against the positive-st
 in M2's own ratio fixture, `deriveGrossMargin` computed `(revenue + cost_of_revenue) /
 revenue` and produced 1.6 — a 160% gross margin — silently, with basis `derived` and a
 confident note. Verified directly: 15,000 revenue and 9,000 cost of revenue should be a 0.4
-margin and yielded 1.6. Five more derivations carried the identical assumption
-(`capex_pct_revenue`, `daysOf`, `tax_rate`, `interest_rate_debt`, `dividend_payout`); those
-five degrade to a clamp fallback rather than an inverted-looking-plausible number, which is
-why the bug was visible only in gross margin. The fix derives from magnitudes rather than an
+margin and yielded 1.6. Five more derivations carried the identical assumption, and they did
+not all fail the same way. `deriveCapexPctRevenue` (`seed.ts:119-132`) has no plausibility
+clamp, only a finiteness check, and against positive-stored capex the old `-capex / revenue`
+would have produced a negative capex rate — derived, confident, and wrong in the direction
+that shrinks PP&E instead of growing it, exactly as silent a failure as gross margin's.
+`daysOf` (`seed.ts:135-153`) does fall back, but only because it rejects a non-positive flow
+before dividing, not because of a plausibility clamp — a happier accident, not a designed
+guard. The remaining three, `tax_rate`, `interest_rate_debt` and `dividend_payout`, do have
+genuine plausibility clamps (`TAX_RATE_MIN/MAX` and the equivalents at `seed.ts:19-24`) and
+fell back honestly rather than shipping a wrong number. So the bug was silent and dangerous
+in two of six derivations, accidentally caught in a third, and safely caught by design in the
+other three. The fix derives from magnitudes rather than an
 assumed stored sign, mirroring the engine-side fix exactly. The required regression is that
 both sign conventions produce the same driver values — every existing seed test used only a
 negative-cost fixture, which is exactly why the bug shipped in the first place. Loss-making
