@@ -96,13 +96,24 @@ interface SeededDriver { key: string; value: number; basis: DriverBasis; note: s
 
 - `revenue_growth` is the last period-over-period growth rate, using
   `isImmediatePredecessor` so it is never computed across a gap.
-- Margin and percent-of-revenue drivers are the last actual ratio.
-- `dso` is `accounts_receivable / revenue * 365`, `dio` is `inventory / cost_of_revenue * 365`,
-  `dpo` is `accounts_payable / cost_of_revenue * 365`.
+- Margin and percent-of-revenue drivers are the last actual ratio, over the MAGNITUDE of the
+  cost line: `gross_margin` is `(revenue - |cost_of_revenue|) / revenue`.
+- `dso` is `accounts_receivable / revenue * 365`, `dio` is `inventory / |cost_of_revenue| * 365`,
+  `dpo` is `accounts_payable / |cost_of_revenue| * 365`.
 - `depreciation_pct_ppe` is `depreciation_amortisation / property_plant_equipment` of the
   same period, because there is no earlier PP&E balance to open from at the seam.
-- `tax_rate` is `income_tax_expense / pretax_income`, clamped to 0..0.5.
-- `interest_rate_debt` is `interest_expense / total opening debt`, clamped to 0..0.25.
+- `tax_rate` is `|income_tax_expense| / pretax_income`, clamped to 0..0.5, and falls back
+  when pre-tax income is not positive so a loss never derives a rate.
+- `interest_rate_debt` is `|interest_expense| / total opening debt`, clamped to 0..0.25.
+- `capex_pct_revenue` is `|capital_expenditures| / revenue`.
+
+**Every cost-line derivation takes a magnitude, and none assumes a stored sign.** This mirrors
+§5.1's output-side rule and was corrected during implementation, late. The original text here
+assumed costs were stored negative, so a filing that printed them positive seeded a gross margin
+of 1.6 — 160 percent — silently, marked `derived`, with a confident note. `capex_pct_revenue`
+had no plausibility clamp either, so it would equally have derived a negative capital-expenditure
+rate. The guards that must survive any future edit here: a loss falls back rather than deriving,
+and net figures are never magnitude-ed.
 - `min_cash` defaults to the last historical cash balance, so a freshly seeded Base draws
   no revolver in period one unless the business actually burns cash.
 - `other_income_expense` is the last historical value. "Held flat" in §4's table means flat at
@@ -362,8 +373,9 @@ from `ok` to `unavailable`.
 
 The fix is a `absentMeansZero` flag on `LineItemDef`, set on `revolver` alone: a line item the
 extractor can never emit, whose absence means the concept does not apply rather than that
-extraction missed it. The flag lives on the taxonomy entry, not in a list beside the ratio
-library, so the property is declared where the line item is and a key that can legitimately be
+extraction missed it. It is set on `revolver` and on `revolver_movement`, the cash-flow line
+introduced in §5.3, and on nothing else. The flag lives on the taxonomy entry, not in a list
+beside the ratio library, so the property is declared where the line item is and a key that can legitimately be
 absent-because-unextracted cannot be added to it by accident. The averaging path skips such a
 key rather than treating the asserted zero as a fallback, which would otherwise stamp a
 spurious `averaging_fallback` note on every averaged debt ratio.
