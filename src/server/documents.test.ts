@@ -5,6 +5,7 @@ import * as schema from "@/db/schema";
 import { migrate } from "@/db/client";
 import { MissingApiKeyError } from "@/extract/client";
 import { INGEST_ERROR_CODES } from "@/ingest";
+import { WorkspaceNotFoundError, isWorkspaceNotFound } from "./errors";
 import { ingestAndExtract, loadWorkspace, setOverride, REMEDIATION, type Deps } from "./documents";
 import { remapFact } from "./remap";
 
@@ -250,5 +251,25 @@ describe("remediation copy", () => {
   it("has no empty entries", () => {
     const empty = Object.entries(REMEDIATION).filter(([, v]) => v.trim().length === 0).map(([k]) => k);
     expect(empty).toEqual([]);
+  });
+});
+
+describe("the missing-workspace boundary", () => {
+  it("throws a typed error from loadWorkspace, not a message to match on", async () => {
+    const d = deps(vi.fn());
+    const error = await loadWorkspace(d, "nope").then(() => null, (e: unknown) => e);
+    expect(error).toBeInstanceOf(WorkspaceNotFoundError);
+    expect(isWorkspaceNotFound(error)).toBe(true);
+  });
+
+  it("throws the same typed error from remapFact", async () => {
+    const d = deps(vi.fn());
+    const error = await remapFact(d, "nope", "fact", "revenue").then(() => null, (e: unknown) => e);
+    expect(isWorkspaceNotFound(error)).toBe(true);
+  });
+
+  it("does not mistake an unrelated failure for a missing workspace", () => {
+    expect(isWorkspaceNotFound(new Error("No workspace-wide setting is configured."))).toBe(false);
+    expect(isWorkspaceNotFound(undefined)).toBe(false);
   });
 });

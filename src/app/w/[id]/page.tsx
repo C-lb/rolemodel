@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { realDeps } from "@/server/deps";
 import { loadWorkspace } from "@/server/documents";
+import { isWorkspaceNotFound } from "@/server/errors";
 import { WorkspaceScreen } from "./WorkspaceScreen";
 
 export default async function WorkspacePage({ params }: { params: Promise<{ id: string }> }) {
@@ -10,8 +11,10 @@ export default async function WorkspacePage({ params }: { params: Promise<{ id: 
   try {
     ws = await loadWorkspace(realDeps(), id);
   } catch (error) {
-    // A missing workspace is a 404. Anything else is a real fault and must not be disguised as one.
-    if ((error as Error).message.startsWith("No workspace ")) notFound();
+    // A missing workspace is a 404. Anything else is a real fault and must not be
+    // disguised as one, so the test is the error's own type, not the wording of its
+    // message: reformatting a sentence must never move this boundary.
+    if (isWorkspaceNotFound(error)) notFound();
     throw error;
   }
 

@@ -10,6 +10,7 @@ import { MODEL_ID } from "@/extract/client";
 import { buildWorkspace, type WorkspaceView } from "@/model/workspace";
 import { UNMAPPED_KEY } from "@/model/taxonomy";
 import { sortPeriodsMostRecentFirst } from "@/model/periods";
+import { WorkspaceNotFoundError } from "./errors";
 
 export interface Deps {
   db: Db;
@@ -34,7 +35,7 @@ const GENERIC_REMEDIATION =
  */
 export const REMEDIATION: Record<string, string> = {
   unsupported_type: "Upload a PDF (.pdf), an Excel workbook (.xlsx, .xlsm) or a CSV (.csv).",
-  unreadable: "The file is damaged or is not really the format its extension claims. Open it in the application that produced it and re-save or re-export a fresh copy, then upload that. A part-finished download fails this way too — download it again.",
+  unreadable: "The file is damaged or is not really the format its extension claims. Open it in the application that produced it and re-save or re-export a fresh copy, then upload that. A part-finished download fails this way too, so download it again if that is what happened.",
   extraction_failed: "Re-upload just the pages holding the statements. If it fails again, the document may not contain financial statements the extractor recognises; check the terminal running the app for the per-section errors.",
   too_large: "Split the document, or export just the statement pages and upload those.",
   encrypted_pdf: "Open the PDF, remove the password, save a copy and upload that.",
@@ -163,7 +164,7 @@ export async function loadWorkspace(
 ): Promise<WorkspaceView & { documentName: string; runId: string | null; unmapped: UnmappedFactRow[] }> {
   const [workspace] = deps.db.select().from(schema.workspaces)
     .where(eq(schema.workspaces.id, workspaceId)).all();
-  if (!workspace) throw new Error(`No workspace ${workspaceId}`);
+  if (!workspace) throw new WorkspaceNotFoundError(workspaceId);
 
   const activeRun = workspace.activeRunId
     ? deps.db.select().from(schema.extractionRuns).where(eq(schema.extractionRuns.id, workspace.activeRunId)).all()[0]

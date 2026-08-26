@@ -2,6 +2,7 @@ import { and, eq, ne } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import { lineItem, UNMAPPED_KEY } from "@/model/taxonomy";
 import type { Deps } from "./documents";
+import { WorkspaceNotFoundError } from "./errors";
 
 /**
  * Move one extracted fact to a different canonical line item, keeping its
@@ -24,7 +25,7 @@ export async function remapFact(
 
   const [workspace] = deps.db.select().from(schema.workspaces)
     .where(eq(schema.workspaces.id, workspaceId)).all();
-  if (!workspace) throw new Error(`No workspace "${workspaceId}".`);
+  if (!workspace) throw new WorkspaceNotFoundError(workspaceId);
 
   const [fact] = deps.db.select().from(schema.facts).where(eq(schema.facts.id, factId)).all();
   if (!fact) throw new Error(`No fact "${factId}".`);
