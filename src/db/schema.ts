@@ -134,6 +134,10 @@ export const scenarios = sqliteTable("scenarios", {
   uniqueName: uniqueIndex("scenarios_unique_name").on(t.workspaceId, t.name),
 }));
 
+/** Every value `drivers.basis` may hold. See the field comment below for what each means. */
+export const DRIVER_BASIS_VALUES = ["derived", "default", "user"] as const;
+export type StoredDriverBasis = (typeof DRIVER_BASIS_VALUES)[number];
+
 /**
  * One row per (scenario, driver, forecast period). Every driver exists for every
  * forecast period from the moment a scenario is created (drivers.ts) — there is no
@@ -142,7 +146,8 @@ export const scenarios = sqliteTable("scenarios", {
  * `basis` is `"derived" | "default"` when seeded (see `DriverBasis` in
  * `model/forecast/seed.ts`), and `"user"` once `saveDriver` or `fillRight` has touched
  * the cell — a provenance the seeding layer has no reason to know about, so it is not
- * added to that narrower type.
+ * added to that narrower type. Enforced both here (drizzle's TS enum) and in the DDL's
+ * `CHECK` constraint, so a bad value can reach neither the type nor the column.
  */
 export const drivers = sqliteTable("drivers", {
   id: text("id").primaryKey(),
@@ -150,7 +155,7 @@ export const drivers = sqliteTable("drivers", {
   key: text("key").notNull(),
   periodKey: text("period_key").notNull(),
   value: real("value").notNull(),
-  basis: text("basis").notNull(),
+  basis: text("basis", { enum: DRIVER_BASIS_VALUES }).notNull(),
   note: text("note").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, (t) => ({

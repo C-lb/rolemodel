@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import * as schema from "@/db/schema";
+import type { StoredDriverBasis } from "@/db/schema";
 import { deriveDrivers, scenarioSeed, type SeededDriver } from "@/model/forecast/seed";
 import { DRIVER_KEYS } from "@/model/forecast/drivers";
 import { extendAnnualPeriods, sortPeriodsMostRecentFirst } from "@/model/periods";
@@ -25,7 +26,7 @@ export interface DriverRow {
   key: string;
   periodKey: string;
   value: number;
-  basis: string;
+  basis: StoredDriverBasis;
   note: string;
   updatedAt: number;
 }
@@ -291,7 +292,12 @@ export async function setActiveScenario(
 }
 
 export async function readDrivers(deps: Deps, scenarioId: string): Promise<DriverRow[]> {
-  const rows = deps.db.select().from(schema.drivers).where(eq(schema.drivers.scenarioId, scenarioId)).all();
+  const rows = deps.db
+    .select()
+    .from(schema.drivers)
+    .where(eq(schema.drivers.scenarioId, scenarioId))
+    .orderBy(schema.drivers.key, schema.drivers.periodKey)
+    .all();
   return rows.map((r) => ({
     scenarioId: r.scenarioId,
     key: r.key,

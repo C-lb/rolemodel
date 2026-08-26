@@ -151,4 +151,43 @@ describe("assembleForecast", () => {
     const period = [...new Set(bullRows.map((r) => r.periodKey))].sort()[0];
     expect(bullResult.valueAt("revenue", period)!).toBeGreaterThan(bearResult.valueAt("revenue", period)!);
   });
+
+  it("flags a fallback-constant driver with forecast_driver_default, and clears it once every period is user-edited", async () => {
+    makeAnnualWorkspace(db, "ws1");
+    const created = await createScenario(deps, "ws1", "ignored");
+    if (!created.ok) throw new Error("expected scenario creation to succeed");
+    const scenarioId = created.data.scenarioId;
+
+    // debt_repayment has no seeding rule that can ever derive it from history (seed.ts's
+    // `alwaysDefault`), so every period on a freshly seeded scenario is `basis: "default"`.
+    const seededRows = await readDrivers(deps, scenarioId);
+    const debtRepaymentRows = seededRows.filter((r) => r.key === "debt_repayment");
+    expect(debtRepaymentRows.length).toBeGreaterThan(0);
+    expect(debtRepaymentRows.every((r) => r.basis === "default")).toBe(true);
+
+    const before = await assembleForecast(deps, "ws1", scenarioId);
+    expect(before.ok).toBe(true);
+    const beforeFinding = before.findings.find((f) => f.code === "forecast_driver_default");
+    expect(beforeFinding).toBeDefined();
+    expect(beforeFinding!.keys).toContain("debt_repayment");
+
+    // Overwrite every period's debt_repayment: saveDriver stamps basis "user", which
+    // assembleForecast must map to a basis the engine never treats as "default".
+    for (const period of debtRepaymentRows.map((r) => r.periodKey)) {
+      const saved = await saveDriver(deps, scenarioId, "debt_repayment", period, 5);
+      expect(saved.ok).toBe(true);
+    }
+    const editedRows = (await readDrivers(deps, scenarioId)).filter((r) => r.key === "debt_repayment");
+    expect(editedRows.every((r) => r.basis === "user")).toBe(true);
+
+    const after = await assembleForecast(deps, "ws1", scenarioId);
+    expect(after.ok).toBe(true);
+    const afterFinding = after.findings.find((f) => f.code === "forecast_driver_default");
+    // interest_rate_cash is also an always-default driver and was left untouched, so the
+    // finding as a whole may still fire — the assertion that matters is that the key we
+    // edited is no longer named in it.
+    if (afterFinding) {
+      expect(afterFinding.keys).not.toContain("debt_repayment");
+    }
+  });
 });

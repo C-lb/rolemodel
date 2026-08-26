@@ -62,7 +62,8 @@ const DDL = [
      id TEXT PRIMARY KEY,
      scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
      key TEXT NOT NULL, period_key TEXT NOT NULL, value REAL NOT NULL,
-     basis TEXT NOT NULL, note TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
+     basis TEXT NOT NULL CHECK (basis IN ('derived', 'default', 'user')),
+     note TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS drivers_unique_cell ON drivers(scenario_id, key, period_key)`,
   `CREATE INDEX IF NOT EXISTS drivers_by_scenario ON drivers(scenario_id)`,
 ];
