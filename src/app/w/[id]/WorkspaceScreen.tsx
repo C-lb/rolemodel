@@ -41,6 +41,13 @@ const STATEMENT_TITLES: [keyof Statements, string][] = [
 
 const cellId = (key: string, period: string) => `${key}::${period}`;
 
+/**
+ * Identity of one finding. Several findings share a code and a period (one per
+ * subtotal, one per conflicting cell, one per missing statement), so the keys
+ * they carry are what tells them apart. Dismissing one must not hide its siblings.
+ */
+const findingId = (f: Finding) => `${f.code}:${f.periodKey}:${f.keys.join(",")}`;
+
 export function WorkspaceScreen({ workspaceId, documentName, periods, findings, statements }: Props) {
   const [inspected, setInspected] = useState<Cell | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
@@ -112,7 +119,7 @@ export function WorkspaceScreen({ workspaceId, documentName, periods, findings, 
     );
   }
 
-  const visible = findings.filter((f) => !dismissed.has(`${f.code}:${f.periodKey}`));
+  const visible = findings.filter((f) => !dismissed.has(findingId(f)));
   const hasFigures = STATEMENT_TITLES.some(([kind]) =>
     statements[kind].some((row) => row.cells.some((c) => c.value !== undefined)),
   );
@@ -134,8 +141,10 @@ export function WorkspaceScreen({ workspaceId, documentName, periods, findings, 
           title="That edit was not saved"
           message={saveFailure.message}
           remediation={saveFailure.remediation}
-          actionLabel={pending ? "Saving…" : "Try again"}
-          onAction={saveFailure.retry}
+          actionLabel="Try again"
+          // The control goes away while a retry is in flight: Banner renders no
+          // button without a handler, which is how it says "not now" here.
+          onAction={pending ? undefined : saveFailure.retry}
         />
       )}
 
@@ -143,13 +152,13 @@ export function WorkspaceScreen({ workspaceId, documentName, periods, findings, 
         <div className="flex flex-col gap-2">
           {visible.map((f) => (
             <Banner
-              key={`${f.code}:${f.periodKey}:${f.keys.join(",")}`}
+              key={findingId(f)}
               severity={f.severity}
-              title={tooltip(`finding.${f.code}`)}
-              message={f.message}
+              title={f.message}
+              titleHelp={tooltip(`finding.${f.code}`)}
               remediation={f.remediation}
               onDismiss={f.severity === "warning"
-                ? () => setDismissed((prev) => new Set(prev).add(`${f.code}:${f.periodKey}`))
+                ? () => setDismissed((prev) => new Set(prev).add(findingId(f)))
                 : undefined}
             />
           ))}

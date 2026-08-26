@@ -30,7 +30,7 @@ export function EditableCell({ cell, onCommit, onReset, onInspect }: Props) {
   const pendingInspect = useRef<ReturnType<typeof setTimeout> | null>(null);
   const figureRef = useRef<HTMLButtonElement>(null);
   const wasEditing = useRef(false);
-  const cancelled = useRef(false);
+  const settled = useRef(false);
   const hintId = useId();
 
   useEffect(() => () => {
@@ -52,30 +52,37 @@ export function EditableCell({ cell, onCommit, onReset, onInspect }: Props) {
 
   function startEditing() {
     cancelPendingInspect();
-    cancelled.current = false;
+    settled.current = false;
     setDraft(cell.value === undefined ? "" : String(cell.value));
     setInvalid(false);
     setEditing(true);
   }
 
-  function cancelEditing(input: HTMLInputElement) {
-    // Browsers fire blur when the focused input is removed, and blur commits.
-    // Blurring behind this flag is what keeps Escape from saving the draft.
-    cancelled.current = true;
+  /**
+   * Browsers fire blur when the focused input is removed, and blur commits. So
+   * both ways out of the editor blur it first behind this flag: without that,
+   * Escape would save the draft and Enter would save it twice.
+   */
+  function settle(input: HTMLInputElement) {
+    settled.current = true;
     input.blur();
     setEditing(false);
+  }
+
+  function cancelEditing(input: HTMLInputElement) {
+    settle(input);
     setInvalid(false);
   }
 
-  function commit() {
-    if (cancelled.current) return;
+  function commit(input: HTMLInputElement) {
+    if (settled.current) return;
     const parsed = parseMoney(draft);
     if (parsed === null) {
       setInvalid(true);
       return;
     }
     setInvalid(false);
-    setEditing(false);
+    settle(input);
     onCommit(parsed);
   }
 
@@ -91,9 +98,9 @@ export function EditableCell({ cell, onCommit, onReset, onInspect }: Props) {
           aria-describedby={invalid ? hintId : undefined}
           value={draft}
           onChange={(e) => { setDraft(e.target.value); setInvalid(false); }}
-          onBlur={commit}
+          onBlur={(e) => commit(e.currentTarget)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") commit();
+            if (e.key === "Enter") commit(e.currentTarget);
             if (e.key === "Escape") cancelEditing(e.currentTarget);
           }}
           className={[
@@ -120,7 +127,7 @@ export function EditableCell({ cell, onCommit, onReset, onInspect }: Props) {
     <td className="px-2 py-1.5 text-right align-middle">
       <span className="inline-flex items-center justify-end gap-1.5">
         {lowConfidence && (
-          <Tooltip label={tooltip("control.confidence_badge")}>
+          <Tooltip label={tooltip("control.confidence_badge")} align="end">
             <span className="inline-flex items-center text-amber-400">
               <svg
                 aria-hidden="true"
@@ -141,59 +148,61 @@ export function EditableCell({ cell, onCommit, onReset, onInspect }: Props) {
           </Tooltip>
         )}
 
-        <button
-          ref={figureRef}
-          type="button"
-          aria-label={`${label}, ${cell.periodKey}: ${formatMoney(cell.value)}`}
-          title={tooltip("control.provenance")}
-          onClick={(e) => {
-            // A keyboard activation carries no click count, so it inspects at once.
-            if (e.detail === 0) { onInspect(); return; }
-            // A pointer click waits: the second click of a double click cancels it.
-            if (pendingInspect.current !== null) return;
-            pendingInspect.current = setTimeout(() => {
-              pendingInspect.current = null;
-              onInspect();
-            }, DOUBLE_CLICK_WINDOW_MS);
-          }}
-          onDoubleClick={startEditing}
-          onKeyDown={(e) => {
-            if (e.key !== "Enter") return;
-            e.preventDefault();
-            startEditing();
-          }}
-          className={[
-            "rounded-[10px] px-1.5 py-0.5 tabular-nums transition-colors",
-            "hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400",
-            cell.source === "override" ? "text-sky-300 underline decoration-dotted underline-offset-4" : "text-neutral-200",
-            cell.value === undefined ? "text-neutral-500" : "",
-          ].join(" ")}
-        >
-          {formatMoney(cell.value)}
-        </button>
+        <Tooltip label={tooltip("control.provenance")} align="end">
+          <button
+            ref={figureRef}
+            type="button"
+            aria-label={`${label}, ${cell.periodKey}: ${formatMoney(cell.value)}`}
+            onClick={(e) => {
+              // A keyboard activation carries no click count, so it inspects at once.
+              if (e.detail === 0) { onInspect(); return; }
+              // A pointer click waits: the second click of a double click cancels it.
+              if (pendingInspect.current !== null) return;
+              pendingInspect.current = setTimeout(() => {
+                pendingInspect.current = null;
+                onInspect();
+              }, DOUBLE_CLICK_WINDOW_MS);
+            }}
+            onDoubleClick={startEditing}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              startEditing();
+            }}
+            className={[
+              "rounded-[10px] px-1.5 py-0.5 tabular-nums transition-colors",
+              "hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400",
+              cell.source === "override" ? "text-sky-300 underline decoration-dotted underline-offset-4" : "text-neutral-200",
+              cell.value === undefined ? "text-neutral-500" : "",
+            ].join(" ")}
+          >
+            {formatMoney(cell.value)}
+          </button>
+        </Tooltip>
 
         {cell.source === "override" && (
-          <button
-            type="button"
-            onClick={onReset}
-            aria-label="Reset to extracted value"
-            title={tooltip("control.reset_cell")}
-            className="rounded-[10px] p-1 text-neutral-500 transition-colors hover:bg-white/5 hover:text-neutral-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
-          >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="size-[0.85em] align-middle"
+          <Tooltip label={tooltip("control.reset_cell")} align="end">
+            <button
+              type="button"
+              onClick={onReset}
+              aria-label="Reset to extracted value"
+              className="rounded-[10px] p-1 text-neutral-500 transition-colors hover:bg-white/5 hover:text-neutral-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
             >
-              <polyline points="1 4 1 10 7 10" />
-              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-            </svg>
-          </button>
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="size-[0.85em] align-middle"
+              >
+                <polyline points="1 4 1 10 7 10" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+            </button>
+          </Tooltip>
         )}
       </span>
     </td>

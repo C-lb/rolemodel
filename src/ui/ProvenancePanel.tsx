@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { Cell } from "@/model/workspace";
-import { lineItem } from "@/model/taxonomy";
+import { lineItem, UNMAPPED_KEY } from "@/model/taxonomy";
 import { formatMoney } from "./format";
 import { tooltip } from "./tooltips";
 import { Tooltip } from "./Tooltip";
@@ -57,7 +57,7 @@ export function ProvenancePanel({ cell, documentName, onClose }: Props) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <span className="block text-xs leading-snug text-neutral-500">Where this figure came from</span>
-          <Tooltip label={def ? tooltip(`item.${def.key}`) : "This figure is not mapped to a canonical line item."}>
+          <Tooltip label={tooltip(`item.${def ? def.key : UNMAPPED_KEY}`)}>
             <h2 className="mt-1 text-base font-medium leading-snug text-neutral-100">
               {def?.label ?? cell.canonicalKey}
             </h2>

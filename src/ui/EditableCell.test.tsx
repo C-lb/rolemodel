@@ -44,6 +44,17 @@ describe("EditableCell", () => {
     expect(onCommit).toHaveBeenCalledWith(-2500);
   });
 
+  it("commits once, not twice, when closing the editor blurs the input", () => {
+    const { onCommit } = renderCell();
+    fireEvent.doubleClick(screen.getByText("1,000"));
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "1,250" } });
+    // Enter closes the editor, which blurs the input, and blur is the other commit path.
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledWith(1250);
+  });
+
   it("refuses to commit an unparseable value and marks the field invalid", () => {
     const { onCommit } = renderCell();
     fireEvent.doubleClick(screen.getByText("1,000"));

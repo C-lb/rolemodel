@@ -56,7 +56,9 @@ export function validate(input: ValidateInput): Finding[] {
   for (const statement of ["income", "balance", "cashflow"] as StatementKind[]) {
     if (!statementHasData(statement, periods, valueAt)) {
       findings.push({
-        code: "missing_statement", severity: "warning", periodKey: null, keys: [],
+        // `keys` names the statement rather than a line item here: it is what makes
+        // one missing-statement finding distinguishable from its two siblings.
+        code: "missing_statement", severity: "warning", periodKey: null, keys: [statement],
         message: `No ${statement} statement figures were extracted.`,
         remediation: "If the statement is in the document, re-run extraction over its page range. Otherwise upload the missing statement separately.",
       });
@@ -141,7 +143,7 @@ export function validate(input: ValidateInput): Finding[] {
       if (lowKeys.length > 0) {
         findings.push({
           code: "low_confidence", severity: "warning", periodKey: period, keys: lowKeys,
-          message: `${period}: ${lowKeys.length} figure${lowKeys.length === 1 ? "" : "s"} were extracted with low confidence.`,
+          message: `${period}: ${lowKeys.length} figure${lowKeys.length === 1 ? " was" : "s were"} extracted with low confidence.`,
           remediation: "Open each flagged figure's provenance panel and compare it against the source page before relying on it.",
         });
       }

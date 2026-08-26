@@ -1,4 +1,4 @@
-import { TAXONOMY } from "@/model/taxonomy";
+import { TAXONOMY, UNMAPPED_KEY } from "@/model/taxonomy";
 
 const itemTooltips: Record<string, string> = Object.fromEntries(
   TAXONOMY.map((i) => [`item.${i.key}`, i.definition]),
@@ -46,8 +46,15 @@ const controlTooltips: Record<(typeof CONTROL_KEYS)[number], string> = {
   "control.scale_badge": "The multiplier applied to the printed figure to reach base currency units.",
 };
 
+/** Copy for figures that landed outside the taxonomy, which have no line-item definition to show. */
+const unmappedTooltip: Record<string, string> = {
+  [`item.${UNMAPPED_KEY}`]:
+    "This figure is not mapped to a canonical line item, so nothing downstream will use it. Remap it to the line it belongs to.",
+};
+
 export const TOOLTIPS: Record<string, string> = {
   ...itemTooltips,
+  ...unmappedTooltip,
   ...findingTooltips,
   ...controlTooltips,
 };

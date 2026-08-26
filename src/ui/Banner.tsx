@@ -1,9 +1,13 @@
 "use client";
 
+import { Tooltip } from "./Tooltip";
+
 interface Props {
   severity: "blocking" | "warning";
   title: string;
-  message: string;
+  /** Background on what the title means. Shown on hover and focus rather than inline, so a headline that repeats across sibling banners does not repeat its explanation with it. */
+  titleHelp?: string;
+  message?: string;
   remediation: string;
   actionLabel?: string;
   onAction?: () => void;
@@ -23,7 +27,7 @@ const TONE = {
   },
 };
 
-export function Banner({ severity, title, message, remediation, actionLabel, onAction, onDismiss }: Props) {
+export function Banner({ severity, title, titleHelp, message, remediation, actionLabel, onAction, onDismiss }: Props) {
   const tone = TONE[severity];
   return (
     <div role={tone.role} className={`flex gap-3 rounded-xl border px-4 py-3.5 text-sm ${tone.wrap}`}>
@@ -54,8 +58,14 @@ export function Banner({ severity, title, message, remediation, actionLabel, onA
 
       <div className="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0 flex-1">
-          <p className="font-medium leading-snug">{title}</p>
-          <p className="mt-1 leading-relaxed text-current/85">{message}</p>
+          {titleHelp ? (
+            <Tooltip label={titleHelp}>
+              <p className="font-medium leading-snug">{title}</p>
+            </Tooltip>
+          ) : (
+            <p className="font-medium leading-snug">{title}</p>
+          )}
+          {message && <p className="mt-1 leading-relaxed text-current/85">{message}</p>}
           <p className="mt-1.5 text-xs leading-relaxed text-current/70">{remediation}</p>
         </div>
 
