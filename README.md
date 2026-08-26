@@ -21,8 +21,13 @@ M1 (ingest, extract, verify) is complete: file drop, AI extraction with a forced
 schema, per-figure provenance, a deterministic reconciliation gate, editable historicals
 with reset-to-source, and drag-to-remap for misclassified rows.
 
-M2 (ratios and interpretation) is in progress. M3 forecasting, M4 report and PDF export,
-and M5 an adversarial user-test pass follow.
+M2 (ratios and interpretation) is complete: 25 built-in ratios across five families with
+per-period trends, a focus toggle for the core twelve, a workspace-level choice between
+average and ending balances, drag-built custom ratios over a safe expression parser, a
+DuPont decomposition that shows its own reconciliation, and an on-demand generated reading
+per card that is grounded in the computed numbers and cached against them.
+
+M3 forecasting, M4 report and PDF export, and M5 an adversarial user-test pass follow.
 
 The full design spec lives in
 [`docs/superpowers/specs/`](docs/superpowers/specs/2026-08-25-financial-modelling-webapp-design.md).
@@ -75,7 +80,8 @@ npm run dev
 Without an API key the app still runs; extraction is disabled and says so.
 
 ```bash
-npm test        # vitest
+npm test          # vitest
+npm run test:e2e  # playwright, against a seeded throwaway database
 npm run lint
 npm run build
 ```
