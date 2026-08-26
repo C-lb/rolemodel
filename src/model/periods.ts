@@ -20,9 +20,19 @@ export function isRankablePeriodKey(key: string): boolean {
   return PERIOD_KEY_PATTERN.test(key);
 }
 
+/**
+ * The FY half of `PERIOD_KEY_PATTERN`, kept as its own const because `periodRank`,
+ * `place()` and `extendAnnualPeriods` all need to test a key against the annual shape
+ * on its own, with its year captured — not against the FY-or-quarterly union. One
+ * definition, so the three cannot drift into disagreeing about what a year key looks
+ * like. No flags: the callers rely on a fresh `exec` each time, and a global flag's
+ * `lastIndex` would make that stateful.
+ */
+const BARE_FY_PATTERN = /^FY(\d{4})$/;
+
 /** FY2024 sorts above FY2023; Q2-2025 above Q1-2025. Unrankable keys sort last, stably. */
 export function periodRank(key: string): number {
-  const fy = /^FY(\d{4})$/.exec(key);
+  const fy = BARE_FY_PATTERN.exec(key);
   if (fy) return Number(fy[1]) * 10 + 9;
   const q = /^Q([1-4])-(\d{4})$/.exec(key);
   if (q) return Number(q[2]) * 10 + Number(q[1]);
@@ -34,14 +44,10 @@ export function sortPeriodsMostRecentFirst(keys: string[]): string[] {
   return [...keys].sort((a, b) => periodRank(b) - periodRank(a));
 }
 
-const BARE_FY_PATTERN = /^FY(\d{4})$/;
-
 /**
  * Forecast periods are always annual, generated forward from the last historical FY —
  * never from a quarter, so there is no rule for mixing forecast granularity with
- * whatever cadence the filing happened to report in. Reuses the FY half of
- * `PERIOD_KEY_PATTERN` rather than inventing a second definition of what a year key
- * looks like.
+ * whatever cadence the filing happened to report in.
  */
 export function extendAnnualPeriods(latest: string, count: number): string[] {
   const match = BARE_FY_PATTERN.exec(latest);
@@ -56,7 +62,7 @@ type Family = "annual" | "quarterly";
 
 /** A rankable key as a family plus a position within that family's own regular sequence. */
 function place(key: string): { family: Family; index: number } | undefined {
-  const fy = /^FY(\d{4})$/.exec(key);
+  const fy = BARE_FY_PATTERN.exec(key);
   if (fy) return { family: "annual", index: Number(fy[1]) };
   const q = /^Q([1-4])-(\d{4})$/.exec(key);
   if (q) return { family: "quarterly", index: Number(q[2]) * 4 + (Number(q[1]) - 1) };
