@@ -4,7 +4,7 @@ import { Tooltip } from "./Tooltip";
 import { tooltip } from "./tooltips";
 
 interface Props {
-  severity: "blocking" | "warning";
+  severity: "blocking" | "warning" | "info";
   title: string;
   /** Background on what the title means. Shown on hover and focus rather than inline, so a headline that repeats across sibling banners does not repeat its explanation with it. */
   titleHelp?: string;
@@ -25,6 +25,11 @@ const TONE = {
     role: "status" as const,
     wrap: "border-amber-900/40 bg-amber-950/20 text-amber-100",
     icon: "text-amber-400",
+  },
+  info: {
+    role: "status" as const,
+    wrap: "border-sky-900/40 bg-sky-950/20 text-sky-100",
+    icon: "text-sky-400",
   },
 };
 
@@ -48,11 +53,17 @@ export function Banner({ severity, title, titleHelp, message, remediation, actio
             <line x1="12" y1="8" x2="12" y2="13" />
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </>
-        ) : (
+        ) : severity === "warning" ? (
           <>
             <path d="M10.29 3.86 1.82 18a1.5 1.5 0 0 0 1.29 2.25h17.78A1.5 1.5 0 0 0 22.18 18L13.71 3.86a1.5 1.5 0 0 0-2.42 0Z" />
             <line x1="12" y1="9" x2="12" y2="13" />
             <line x1="12" y1="17" x2="12.01" y2="17" />
+          </>
+        ) : (
+          <>
+            <circle cx="12" cy="12" r="9" />
+            <line x1="12" y1="11" x2="12" y2="16" />
+            <line x1="12" y1="7.5" x2="12.01" y2="7.5" />
           </>
         )}
       </svg>

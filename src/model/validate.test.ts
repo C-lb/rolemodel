@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validate, type ValidateInput } from "./validate";
+import { validate, FINDING_CODES, type ValidateInput } from "./validate";
 import { closeEnough } from "./tolerance";
 
 function lookupFrom(data: Record<string, Record<string, number>>) {
@@ -167,5 +167,34 @@ describe("validate", () => {
     const findings = validate(input({ valueAt: lookupFrom(broken), scaleFactors: [1, 1000] }));
     expect(findings.length).toBeGreaterThan(0);
     for (const f of findings) expect(f.remediation.length, f.code).toBeGreaterThan(0);
+  });
+
+  it("does not flag total_current_liabilities when revolver is absent, as it always is historically", () => {
+    // A historical document never produces a `revolver` fact. The subtotal check sums
+    // whatever components it can see, so an absent revolver must stay harmless.
+    const data = {
+      FY2024: {
+        ...balanced.FY2024,
+        total_current_liabilities: 300,
+        accounts_payable: 100,
+        short_term_debt: 200,
+      },
+    };
+    const findings = validate({ periods: ["FY2024"], valueAt: lookupFrom(data) });
+    expect(findings.some((f) => f.code === "subtotal_mismatch" && f.keys.includes("total_current_liabilities")))
+      .toBe(false);
+  });
+
+  it("carries the six forecast finding codes alongside M1's own", () => {
+    for (const code of [
+      "forecast_not_annual",
+      "forecast_missing_base",
+      "forecast_articulation_broken",
+      "forecast_revolver_drawn",
+      "forecast_equity_negative",
+      "forecast_driver_default",
+    ]) {
+      expect(FINDING_CODES).toContain(code);
+    }
   });
 });

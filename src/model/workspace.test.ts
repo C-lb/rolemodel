@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildWorkspace, type WorkspaceInput } from "./workspace";
+import { computeRatios } from "./ratios/compute";
 import type { Provenance } from "@/db/schema";
 
 const prov: Provenance = {
@@ -74,5 +75,115 @@ describe("buildWorkspace", () => {
       overrides: [{ canonicalKey: "total_equity", periodKey: "FY2024", value: 400 }],
     }));
     expect(fixed.findings.some((f) => f.code === "balance_sheet_imbalance")).toBe(false);
+  });
+});
+
+describe("forecast layer", () => {
+  function forecastValueAt(data: Record<string, Record<string, number>>) {
+    return (key: string, period: string) => data[period]?.[key];
+  }
+
+  it("behaves exactly as before when no forecast layer is given", () => {
+    const withoutLayer = buildWorkspace(input());
+    const control = buildWorkspace(input());
+    expect(withoutLayer.periods).toEqual(control.periods);
+    expect(withoutLayer.cell("revenue", "FY2024")).toEqual(control.cell("revenue", "FY2024"));
+    expect(withoutLayer.findings).toEqual(control.findings);
+  });
+
+  it("includes the forecast keys in periods, sorted most recent first", () => {
+    const ws = buildWorkspace(input({
+      periods: ["FY2023", "FY2024"],
+      forecast: { periods: ["FY2026", "FY2025"], valueAt: forecastValueAt({}) },
+    }));
+    expect(ws.periods).toEqual(["FY2026", "FY2025", "FY2024", "FY2023"]);
+  });
+
+  it("resolves a forecast cell from the layer with no provenance, confidence or extracted value", () => {
+    const ws = buildWorkspace(input({
+      forecast: {
+        periods: ["FY2025"],
+        valueAt: forecastValueAt({ FY2025: { revenue: 5000 } }),
+      },
+    }));
+    const cell = ws.cell("revenue", "FY2025");
+    expect(cell.value).toBe(5000);
+    expect(cell.source).toBe("forecast");
+    expect(cell.extractedValue).toBeUndefined();
+    expect(cell.confidence).toBeUndefined();
+    expect(cell.provenance).toBeUndefined();
+  });
+
+  it("never lets an override shadow a forecast cell", () => {
+    const ws = buildWorkspace(input({
+      forecast: {
+        periods: ["FY2025"],
+        valueAt: forecastValueAt({ FY2025: { revenue: 5000 } }),
+      },
+      overrides: [{ canonicalKey: "revenue", periodKey: "FY2025", value: 9999 }],
+    }));
+    const cell = ws.cell("revenue", "FY2025");
+    expect(cell.value).toBe(5000);
+    expect(cell.source).toBe("forecast");
+  });
+
+  it("leaves a historical cell unaffected by the presence of a forecast layer", () => {
+    const withoutLayer = buildWorkspace(input());
+    const withLayer = buildWorkspace(input({
+      forecast: { periods: ["FY2025"], valueAt: forecastValueAt({ FY2025: { revenue: 5000 } }) },
+    }));
+    expect(withLayer.cell("revenue", "FY2024")).toEqual(withoutLayer.cell("revenue", "FY2024"));
+  });
+
+  it("does not run M1's validation gate over forecast periods", () => {
+    // Decision: `validate()` runs only over the historical period list. Forecast
+    // periods are the forecast engine's own responsibility (spec 5.6's forecast_*
+    // codes), not M1's balance-sheet/cash-flow/subtotal checks on computed cells.
+    const ws = buildWorkspace(input({
+      facts: [
+        { canonicalKey: "total_assets", periodKey: "FY2024", value: 1000, confidence: 1, provenance: prov },
+        { canonicalKey: "total_liabilities", periodKey: "FY2024", value: 600, confidence: 1, provenance: prov },
+        { canonicalKey: "total_equity", periodKey: "FY2024", value: 400, confidence: 1, provenance: prov },
+      ],
+      forecast: {
+        // Deliberately unbalanced: if M1's balance check ran over this period it would fire.
+        periods: ["FY2025"],
+        valueAt: forecastValueAt({
+          FY2025: { total_assets: 1000, total_liabilities: 1, total_equity: 1 },
+        }),
+      },
+    }));
+    expect(ws.findings.some((f) => f.periodKey === "FY2025")).toBe(false);
+  });
+
+  it("hands computeRatios a workspace whose forecast periods carry ratio values, leaving historical values identical", () => {
+    const facts = [
+      { canonicalKey: "revenue", periodKey: "FY2024", value: 1000, confidence: 0.9, provenance: prov },
+      { canonicalKey: "total_assets", periodKey: "FY2024", value: 2000, confidence: 0.9, provenance: prov },
+    ];
+    const withoutLayer = buildWorkspace({ periods: ["FY2024"], facts, overrides: [] });
+    const withLayer = buildWorkspace({
+      periods: ["FY2024"],
+      facts,
+      overrides: [],
+      forecast: {
+        periods: ["FY2025"],
+        valueAt: forecastValueAt({ FY2025: { revenue: 1100, total_assets: 2200 } }),
+      },
+    });
+
+    const baseline = computeRatios({ workspace: withoutLayer, mode: "ending", custom: [] });
+    const withForecast = computeRatios({ workspace: withLayer, mode: "ending", custom: [] });
+
+    const baselineTurnover = baseline.find((r) => r.key === "asset_turnover")!;
+    const forecastTurnover = withForecast.find((r) => r.key === "asset_turnover")!;
+
+    const historicalBefore = baselineTurnover.periods.find((p) => p.periodKey === "FY2024");
+    const historicalAfter = forecastTurnover.periods.find((p) => p.periodKey === "FY2024");
+    expect(historicalAfter).toEqual(historicalBefore);
+
+    const forecastPeriod = forecastTurnover.periods.find((p) => p.periodKey === "FY2025");
+    expect(forecastPeriod?.state).toBe("ok");
+    expect(forecastPeriod?.value).toBeCloseTo(1100 / 2200);
   });
 });

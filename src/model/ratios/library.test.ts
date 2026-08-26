@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { TAXONOMY } from "@/model/taxonomy";
+import { parseExpression, identifiers } from "./expression";
 import {
   RATIOS,
   CORE_KEYS,
@@ -83,6 +84,20 @@ describe("ratio library", () => {
   it("looks a ratio up by key", () => {
     expect(ratio("current_ratio")?.family).toBe("liquidity");
     expect(ratio("not_a_ratio")).toBeUndefined();
+  });
+
+  it("includes revolver in every expression that sums short_term_debt and long_term_debt", () => {
+    // Structural, not a hand-listed set of ratio keys: the next ratio that sums total
+    // debt inherits this check for free, rather than rotting the day it is added.
+    for (const r of RATIOS) {
+      const parsed = parseExpression(r.expression);
+      expect(parsed.ok, r.key).toBe(true);
+      if (!parsed.ok) continue;
+      const names = identifiers(parsed.node);
+      if (names.includes("short_term_debt") && names.includes("long_term_debt")) {
+        expect(names, r.key).toContain("revolver");
+      }
+    }
   });
 });
 

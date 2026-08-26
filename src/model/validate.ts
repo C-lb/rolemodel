@@ -2,11 +2,16 @@ import { TAXONOMY, lineItem, type StatementKind } from "./taxonomy";
 import { closeEnough } from "./tolerance";
 import { isImmediatePredecessor, isRankablePeriodKey, missingPeriodsInSequence } from "./periods";
 
-export type FindingSeverity = "blocking" | "warning";
+export type FindingSeverity = "blocking" | "warning" | "info";
 
 export const FINDING_CODES = [
   "balance_sheet_imbalance", "cashflow_tie_out", "subtotal_mismatch", "missing_periods",
   "missing_statement", "low_confidence", "scale_inconsistent", "merge_conflict",
+  // The forecast engine's own codes (src/model/forecast/engine.ts, M3 task 3+). Added
+  // here because `FindingCode` is a closed union shared with M1's `Finding` shape —
+  // the engine returns the same structure rather than forking a parallel finding type.
+  "forecast_not_annual", "forecast_missing_base", "forecast_articulation_broken",
+  "forecast_revolver_drawn", "forecast_equity_negative", "forecast_driver_default",
 ] as const;
 export type FindingCode = (typeof FINDING_CODES)[number];
 

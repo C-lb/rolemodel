@@ -1,5 +1,6 @@
 import { itemsFor, type LineItemDef, type StatementKind } from "./taxonomy";
-import { validate, type Finding } from "./validate";
+import { validate, type Finding, type ValueLookup } from "./validate";
+import { sortPeriodsMostRecentFirst } from "./periods";
 import type { Provenance } from "@/db/schema";
 
 export interface ExtractedFactLike {
@@ -20,7 +21,7 @@ export interface Cell {
   canonicalKey: string;
   periodKey: string;
   value: number | undefined;
-  source: "extracted" | "override" | "absent";
+  source: "extracted" | "override" | "absent" | "forecast";
   extractedValue: number | undefined;
   confidence: number | undefined;
   provenance: Provenance | undefined;
@@ -31,12 +32,23 @@ export interface StatementRow {
   cells: Cell[];
 }
 
+/**
+ * A forecast layer widens the workspace with computed periods, rather than forking a
+ * second view: `computeRatios` reads only a `WorkspaceView`, so this is the one seam
+ * through which ratios can ever cover forecast periods (spec §7).
+ */
+export interface WorkspaceForecastLayer {
+  periods: string[];
+  valueAt: ValueLookup;
+}
+
 export interface WorkspaceInput {
   periods: string[];
   facts: ExtractedFactLike[];
   overrides: OverrideLike[];
   scaleFactors?: number[];
   conflicts?: { canonicalKey: string; periodKey: string }[];
+  forecast?: WorkspaceForecastLayer;
 }
 
 export interface WorkspaceView {
@@ -51,8 +63,31 @@ const id = (key: string, period: string) => `${key}::${period}`;
 export function buildWorkspace(input: WorkspaceInput): WorkspaceView {
   const factIndex = new Map(input.facts.map((f) => [id(f.canonicalKey, f.periodKey), f]));
   const overrideIndex = new Map(input.overrides.map((o) => [id(o.canonicalKey, o.periodKey), o]));
+  const forecast = input.forecast;
+  const forecastPeriodSet = new Set(forecast?.periods ?? []);
+
+  // Most recent first, forecast keys included, through the one ordering rule the rest
+  // of the codebase already relies on — never a concatenation of the two lists.
+  const periods = forecastPeriodSet.size > 0
+    ? sortPeriodsMostRecentFirst([...input.periods, ...forecastPeriodSet])
+    : input.periods;
 
   function cell(canonicalKey: string, periodKey: string): Cell {
+    // A forecast period resolves from the layer only, before facts or overrides are
+    // even consulted. Forecast cells are not overridable — that is the invariant the
+    // rest of the milestone rests on — so an override can never reach this branch.
+    if (forecast && forecastPeriodSet.has(periodKey)) {
+      return {
+        canonicalKey,
+        periodKey,
+        value: forecast.valueAt(canonicalKey, periodKey),
+        source: "forecast",
+        extractedValue: undefined,
+        confidence: undefined,
+        provenance: undefined,
+      };
+    }
+
     const fact = factIndex.get(id(canonicalKey, periodKey));
     const override = overrideIndex.get(id(canonicalKey, periodKey));
     const base: Omit<Cell, "value" | "source"> = {
@@ -70,19 +105,24 @@ export function buildWorkspace(input: WorkspaceInput): WorkspaceView {
   const valueAt = (key: string, period: string) => cell(key, period).value;
   const confidenceAt = (key: string, period: string) => {
     const c = cell(key, period);
-    // A figure the user has typed themselves is not low-confidence.
+    // A figure the user has typed themselves is not low-confidence, and a forecast
+    // cell's confidence is undefined already.
     return c.source === "override" ? undefined : c.confidence;
   };
 
   return {
-    periods: input.periods,
+    periods,
     cell,
     statement(kind) {
       return itemsFor(kind).map((def) => ({
         def,
-        cells: input.periods.map((p) => cell(def.key, p)),
+        cells: periods.map((p) => cell(def.key, p)),
       }));
     },
+    // Deliberately scoped to the historical period list, not `periods`: M1's
+    // balance-sheet, cash-flow and subtotal checks assume an extracted, closable
+    // statement, which a forecast column is not. Forecast periods get their own
+    // findings from the forecast engine (the `forecast_*` codes above), never M1's.
     findings: validate({
       periods: input.periods,
       valueAt,

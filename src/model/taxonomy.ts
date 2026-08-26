@@ -72,6 +72,8 @@ export const TAXONOMY: readonly LineItemDef[] = [
     definition: "Cash collected for goods or services not yet delivered, due within a year." },
   { key: "short_term_debt", statement: "balance", label: "Short-term debt", order: 440, parentKey: "total_current_liabilities", isSubtotal: false,
     definition: "Borrowings and current portion of long-term debt due within a year." },
+  { key: "revolver", statement: "balance", label: "Revolver", order: 445, parentKey: "total_current_liabilities", isSubtotal: false,
+    definition: "The forecast's funding plug: drawn to defend the minimum-cash floor and repaid from surplus cash. Always absent in extracted historicals, since no historical document reports a forward-looking plug." },
   { key: "other_current_liabilities", statement: "balance", label: "Other current liabilities", order: 450, parentKey: "total_current_liabilities", isSubtotal: false,
     definition: "Obligations due within a year not classified elsewhere." },
   { key: "total_current_liabilities", statement: "balance", label: "Total current liabilities", order: 460, parentKey: null, isSubtotal: true,

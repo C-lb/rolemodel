@@ -30,6 +30,18 @@ const findingTooltips: Record<string, string> = {
     "Figures in this document were scaled by more than one factor. Mixing thousands and millions is a common cause of silent, large errors.",
   "finding.merge_conflict":
     "The same line item and period were extracted twice with different values. The higher-confidence value is active until you choose.",
+  "finding.forecast_not_annual":
+    "The forecast engine extends the latest historical year forward. A workspace whose most recent period is a quarter has no year to extend, so it cannot be forecast.",
+  "finding.forecast_missing_base":
+    "A line item the engine needs an opening balance for has no value in the last historical period, so the forecast has nothing to roll forward from.",
+  "finding.forecast_articulation_broken":
+    "The balance sheet did not close: assets did not equal liabilities plus equity in a forecast period. This is an engine bug, not a pessimistic forecast.",
+  "finding.forecast_revolver_drawn":
+    "Cash fell below the minimum-cash floor in at least one forecast period, so the revolver was drawn to cover the shortfall.",
+  "finding.forecast_equity_negative":
+    "Total equity fell below zero in a forecast period. Ratios that divide by equity, such as return on equity, become undefined or misleading.",
+  "finding.forecast_driver_default":
+    "At least one driver could not be derived from history and fell back to a documented default rather than the business's own historical figure.",
 };
 
 /**

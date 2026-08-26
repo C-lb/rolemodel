@@ -30,4 +30,18 @@ describe("Banner", () => {
     render(<Banner severity="blocking" title="t" message="m" remediation="r" />);
     expect(screen.queryByRole("button", { name: /dismiss/i })).toBeNull();
   });
+
+  it("renders an info banner with its own tone, not styled as a failure", () => {
+    render(<Banner severity="info" title="t" message="m" remediation="r" />);
+    const status = screen.getByRole("status");
+    expect(status.className).not.toContain("red");
+    expect(status.className).not.toContain("amber");
+  });
+
+  it("leaves the existing blocking and warning renders unchanged", () => {
+    render(<Banner severity="blocking" title="t" message="m" remediation="r" />);
+    expect(screen.getByRole("alert").className).toContain("red");
+    render(<Banner severity="warning" title="t2" message="m2" remediation="r2" />);
+    expect(screen.getAllByRole("status")[0].className).toContain("amber");
+  });
 });

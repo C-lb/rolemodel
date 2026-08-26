@@ -36,4 +36,16 @@ describe("taxonomy", () => {
       expect(parent!.isSubtotal).toBe(true);
     }
   });
+
+  it("has a revolver line item that sits between short_term_debt and other_current_liabilities", () => {
+    const revolver = lineItem("revolver");
+    expect(revolver).toBeDefined();
+    expect(revolver!.statement).toBe("balance");
+    expect(revolver!.parentKey).toBe("total_current_liabilities");
+    expect(revolver!.isSubtotal).toBe(false);
+    const shortTermDebt = lineItem("short_term_debt")!;
+    const otherCurrentLiabilities = lineItem("other_current_liabilities")!;
+    expect(revolver!.order).toBeGreaterThan(shortTermDebt.order);
+    expect(revolver!.order).toBeLessThan(otherCurrentLiabilities.order);
+  });
 });
