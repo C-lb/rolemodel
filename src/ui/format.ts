@@ -27,3 +27,24 @@ export function parseMoney(input: string): number | null {
   if (!Number.isFinite(n)) return null;
   return parenthesised ? -Math.abs(n) : n;
 }
+
+/**
+ * Ratios are formatted by unit, not by magnitude: 1.84x, 38.2%, 68 days, and money
+ * through the same formatter the statements use, so one figure never appears in two
+ * shapes on one screen.
+ */
+export function formatRatio(value: number, unit: "x" | "percent" | "days" | "currency"): string {
+  if (!Number.isFinite(value)) return ABSENT;
+  switch (unit) {
+    case "x":
+      return `${value.toFixed(2)}x`;
+    case "percent":
+      return `${(value * 100).toFixed(1)}%`;
+    case "days": {
+      const days = Math.round(value);
+      return `${days} ${Math.abs(days) === 1 ? "day" : "days"}`;
+    }
+    case "currency":
+      return formatMoney(value);
+  }
+}

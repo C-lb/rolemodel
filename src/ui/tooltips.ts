@@ -1,7 +1,16 @@
 import { TAXONOMY, UNMAPPED_KEY } from "@/model/taxonomy";
+import { RATIOS } from "@/model/ratios/library";
 
 const itemTooltips: Record<string, string> = Object.fromEntries(
   TAXONOMY.map((i) => [`item.${i.key}`, i.definition]),
+);
+
+/**
+ * A ratio's help text is its authored definition plus its standard caveat, sourced from
+ * the library rather than retyped here: one wording, reviewed in one place.
+ */
+const ratioTooltips: Record<string, string> = Object.fromEntries(
+  RATIOS.map((r) => [`ratio.${r.key}`, `${r.definition} ${r.caveat}`]),
 );
 
 const findingTooltips: Record<string, string> = {
@@ -35,6 +44,8 @@ export const CONTROL_KEYS = [
   "control.provenance",
   "control.dismiss_banner",
   "control.confidence_badge",
+  "control.ratio_explain",
+  "control.ratio_inputs",
 ] as const;
 
 const controlTooltips: Record<(typeof CONTROL_KEYS)[number], string> = {
@@ -44,6 +55,8 @@ const controlTooltips: Record<(typeof CONTROL_KEYS)[number], string> = {
   "control.provenance": "Show where this figure came from: source page, the label and value as printed, and the scale applied.",
   "control.dismiss_banner": "Hide this message for the rest of this session. Nothing about the figures changes, and it comes back if you reload the page while the problem is still there.",
   "control.confidence_badge": "How confident the extractor was in this figure and its mapping. Below 60% is flagged for review.",
+  "control.ratio_explain": "Ask for a short read of what these numbers did across the periods. It is generated from the computed values only, never from the source document, and it is kept until one of those values changes.",
+  "control.ratio_inputs": "Show the figures this ratio was built from: what each component held, what the ratio actually used after any sign or averaging adjustment, and a link back to where each figure came from.",
 };
 
 /** Copy for figures that landed outside the taxonomy, which have no line-item definition to show. */
@@ -54,6 +67,7 @@ const unmappedTooltip: Record<string, string> = {
 
 export const TOOLTIPS: Record<string, string> = {
   ...itemTooltips,
+  ...ratioTooltips,
   ...unmappedTooltip,
   ...findingTooltips,
   ...controlTooltips,

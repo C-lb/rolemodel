@@ -4,6 +4,7 @@ import path from "node:path";
 import { TOOLTIPS, CONTROL_KEYS, tooltip } from "./tooltips";
 import { TAXONOMY } from "@/model/taxonomy";
 import { FINDING_CODES } from "@/model/validate";
+import { RATIOS } from "@/model/ratios/library";
 
 const SRC_DIR = path.join(process.cwd(), "src");
 
@@ -26,6 +27,11 @@ function sourceFiles(dir: string): string[] {
 describe("tooltip registry", () => {
   it("has an entry for every canonical line item", () => {
     const missing = TAXONOMY.filter((i) => !TOOLTIPS[`item.${i.key}`]).map((i) => i.key);
+    expect(missing).toEqual([]);
+  });
+
+  it("has an entry for every ratio", () => {
+    const missing = RATIOS.filter((r) => !TOOLTIPS[`ratio.${r.key}`]).map((r) => r.key);
     expect(missing).toEqual([]);
   });
 
