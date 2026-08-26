@@ -5,6 +5,7 @@ import * as schema from "@/db/schema";
 import { migrate } from "@/db/client";
 import { MissingApiKeyError } from "@/extract/client";
 import { ingestAndExtract, loadWorkspace, setOverride, type Deps } from "./documents";
+import { remapFact } from "./remap";
 
 function deps(call: Deps["call"]) {
   const sqlite = new Database(":memory:");
@@ -36,11 +37,18 @@ async function tinyWorkbook(): Promise<Buffer> {
 const goodResult = {
   result: {
     periods: ["FY2024"], currency: "USD", unmapped_labels: [], notes: "",
-    figures: [{
-      canonical_key: "total_assets", raw_label: "Total assets", raw_value: "1,000", value: 1000,
-      scale_factor: 1, scale_evidence: "", sign_flipped: false, period_key: "FY2024",
-      page: null, sheet: "BS", locator: "row 1", confidence: 0.9,
-    }],
+    figures: [
+      {
+        canonical_key: "total_assets", raw_label: "Total assets", raw_value: "1,000", value: 1000,
+        scale_factor: 1, scale_evidence: "", sign_flipped: false, period_key: "FY2024",
+        page: null, sheet: "BS", locator: "row 1", confidence: 0.9,
+      },
+      {
+        canonical_key: "unmapped", raw_label: "Restructuring reserve", raw_value: "50", value: 50,
+        scale_factor: 1, scale_evidence: "", sign_flipped: false, period_key: "FY2024",
+        page: 4, sheet: "BS", locator: "row 2", confidence: 0.4,
+      },
+    ],
   },
   tokensIn: 10, tokensOut: 4,
 };
@@ -73,8 +81,12 @@ describe("ingestAndExtract", () => {
     const out = await ingestAndExtract(d, xlsxName, bytes);
     expect(out.ok).toBe(true);
     expect(d.db.select().from(schema.documents).all()).toHaveLength(1);
-    expect(d.db.select().from(schema.facts).all()).toHaveLength(1);
     expect(d.db.select().from(schema.workspaces).all()).toHaveLength(1);
+
+    // Both the mapped figure and the one the extractor could not place are kept:
+    // an unmapped figure the user can still move is worth more than a dropped one.
+    const keys = d.db.select().from(schema.facts).all().map((f) => f.canonicalKey).sort();
+    expect(keys).toEqual(["total_assets", "unmapped"]);
   });
 
   it("returns a coded failure for an unsupported file instead of throwing", async () => {
@@ -143,6 +155,38 @@ describe("ingestAndExtract", () => {
     const out = await ingestAndExtract(d, xlsxName, bytes);
     expect(out).toMatchObject({ ok: false, code: "extraction_failed" });
     if (!out.ok) expect(out.message).toContain("overloaded");
+  });
+});
+
+describe("loadWorkspace unmapped figures", () => {
+  it("returns unmapped facts separately and keeps them out of the statements", async () => {
+    const d = deps(vi.fn().mockResolvedValue(goodResult));
+    const created = await ingestAndExtract(d, xlsxName, await tinyWorkbook());
+    if (!created.ok) throw new Error("setup failed");
+
+    const ws = await loadWorkspace(d, created.data.workspaceId);
+    expect(ws.unmapped).toHaveLength(1);
+    expect(ws.unmapped[0]).toMatchObject({
+      label: "Restructuring reserve", periodKey: "FY2024", value: 50, page: 4, rawValue: "50",
+    });
+
+    // Nothing downstream sees it: no cell holds it, and it cannot drag a total or
+    // a reconciliation check off with it.
+    expect(ws.cell("unmapped", "FY2024").value).toBeUndefined();
+    expect(ws.findings.some((f) => f.code === "low_confidence")).toBe(false);
+  });
+
+  it("moves a remapped fact into the statements and out of the unmapped list", async () => {
+    const d = deps(vi.fn().mockResolvedValue(goodResult));
+    const created = await ingestAndExtract(d, xlsxName, await tinyWorkbook());
+    if (!created.ok) throw new Error("setup failed");
+
+    const before = await loadWorkspace(d, created.data.workspaceId);
+    await remapFact(d, before.unmapped[0].id, "inventory");
+
+    const after = await loadWorkspace(d, created.data.workspaceId);
+    expect(after.unmapped).toHaveLength(0);
+    expect(after.cell("inventory", "FY2024").value).toBe(50);
   });
 });
 

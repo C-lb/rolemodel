@@ -38,16 +38,38 @@ describe("mergeFigures", () => {
     expect(out.facts[0].value).toBe(1200);
   });
 
-  it("drops unmapped figures from facts but reports their labels", () => {
+  it("keeps unmapped figures as unmapped facts and reports their labels", () => {
     const out = mergeFigures([figure({ canonical_key: "unmapped", raw_label: "Weird line" })]);
-    expect(out.facts).toHaveLength(0);
+    expect(out.facts).toHaveLength(1);
+    expect(out.facts[0].canonicalKey).toBe("unmapped");
+    expect(out.facts[0].provenance.rawLabel).toBe("Weird line");
     expect(out.unmappedLabels).toContain("Weird line");
   });
 
-  it("drops figures whose canonical key is not in the taxonomy", () => {
+  it("keeps figures whose canonical key is not in the taxonomy, filed as unmapped", () => {
     const out = mergeFigures([figure({ canonical_key: "made_up_key", raw_label: "Ghost" })]);
-    expect(out.facts).toHaveLength(0);
+    expect(out.facts).toHaveLength(1);
+    expect(out.facts[0].canonicalKey).toBe("unmapped");
     expect(out.unmappedLabels).toContain("Ghost");
+  });
+
+  it("does not call two different unmapped labels in one period a conflict", () => {
+    const out = mergeFigures([
+      figure({ canonical_key: "unmapped", raw_label: "Weird line", value: 10 }),
+      figure({ canonical_key: "unmapped", raw_label: "Other odd line", value: 20 }),
+    ]);
+    expect(out.facts).toHaveLength(2);
+    expect(out.conflicts).toHaveLength(0);
+  });
+
+  it("does not call two values for one unmapped label a conflict either", () => {
+    const out = mergeFigures([
+      figure({ canonical_key: "unmapped", raw_label: "Weird line", value: 10 }),
+      figure({ canonical_key: "unmapped", raw_label: "Weird line", value: 20, confidence: 0.95 }),
+    ]);
+    expect(out.facts).toHaveLength(1);
+    expect(out.facts[0].value).toBe(20);
+    expect(out.conflicts).toHaveLength(0);
   });
 
   it("collects the union of periods, most recent first", () => {

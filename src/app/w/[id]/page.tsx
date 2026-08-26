@@ -21,6 +21,7 @@ export default async function WorkspacePage({ params }: { params: Promise<{ id: 
       documentName={ws.documentName}
       periods={ws.periods}
       findings={ws.findings}
+      unmapped={ws.unmapped}
       statements={{
         income: ws.statement("income"),
         balance: ws.statement("balance"),

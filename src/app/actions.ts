@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { realDeps } from "@/server/deps";
 import { ingestAndExtract, setOverride, type ActionResult } from "@/server/documents";
+import { remapFact } from "@/server/remap";
 
 const DB_ERROR_REMEDIATION =
   "Try again. If it keeps happening, check the terminal running the app for the full database error.";
@@ -48,6 +49,21 @@ export async function clearOverride(
     await setOverride(realDeps(), workspaceId, canonicalKey, periodKey, null);
   } catch (error) {
     return { ok: false, code: "db_error", message: (error as Error).message, remediation: DB_ERROR_REMEDIATION };
+  }
+  revalidatePath(`/w/${workspaceId}`);
+  return { ok: true, data: null };
+}
+
+export async function remapLineItem(
+  workspaceId: string, factId: string, toCanonicalKey: string,
+): Promise<ActionResult<null>> {
+  try {
+    await remapFact(realDeps(), factId, toCanonicalKey);
+  } catch (error) {
+    return {
+      ok: false, code: "remap_failed", message: (error as Error).message,
+      remediation: "Pick a different target line, or clear the existing value there first.",
+    };
   }
   revalidatePath(`/w/${workspaceId}`);
   return { ok: true, data: null };

@@ -8,6 +8,7 @@ import { extractDocument, ExtractionFailedError, type ClaudeCaller } from "@/ext
 import { PROMPT_VERSION } from "@/extract/prompt";
 import { MODEL_ID } from "@/extract/client";
 import { buildWorkspace, type WorkspaceView } from "@/model/workspace";
+import { UNMAPPED_KEY } from "@/model/taxonomy";
 
 export interface Deps {
   db: Db;
@@ -146,10 +147,20 @@ function periodRank(key: string): number {
   return -1;
 }
 
+/** A figure the extractor could not place, carried to the UI so the user can move it. */
+export interface UnmappedFactRow {
+  id: string;
+  label: string;
+  periodKey: string;
+  value: number;
+  page: number | null;
+  rawValue: string;
+}
+
 export async function loadWorkspace(
   deps: Deps,
   workspaceId: string,
-): Promise<WorkspaceView & { documentName: string; runId: string | null }> {
+): Promise<WorkspaceView & { documentName: string; runId: string | null; unmapped: UnmappedFactRow[] }> {
   const [workspace] = deps.db.select().from(schema.workspaces)
     .where(eq(schema.workspaces.id, workspaceId)).all();
   if (!workspace) throw new Error(`No workspace ${workspaceId}`);
@@ -164,6 +175,20 @@ export async function loadWorkspace(
   const overrideRows = deps.db.select().from(schema.overrides)
     .where(eq(schema.overrides.workspaceId, workspaceId)).all();
 
+  // Unmapped figures are kept on the run so they can be remapped, but they belong
+  // to no line item, so they must never reach a total or a reconciliation check.
+  const mapped = factRows.filter((f) => f.canonicalKey !== UNMAPPED_KEY);
+  const unmapped: UnmappedFactRow[] = factRows
+    .filter((f) => f.canonicalKey === UNMAPPED_KEY)
+    .map((f) => ({
+      id: f.id,
+      label: f.provenance.rawLabel,
+      periodKey: f.periodKey,
+      value: f.value,
+      page: f.provenance.page,
+      rawValue: f.provenance.rawValue,
+    }));
+
   const periods = [...new Set([
     ...factRows.map((f) => f.periodKey),
     ...overrideRows.map((o) => o.periodKey),
@@ -176,20 +201,20 @@ export async function loadWorkspace(
 
   const view = buildWorkspace({
     periods,
-    facts: factRows.map((f) => ({
+    facts: mapped.map((f) => ({
       canonicalKey: f.canonicalKey, periodKey: f.periodKey, value: f.value,
       confidence: f.confidence, provenance: f.provenance,
     })),
     overrides: overrideRows.map((o) => ({
       canonicalKey: o.canonicalKey, periodKey: o.periodKey, value: o.value,
     })),
-    scaleFactors: factRows.map((f) => f.provenance.scaleFactor),
+    scaleFactors: mapped.map((f) => f.provenance.scaleFactor),
     conflicts: (activeRun?.conflicts ?? [])
       .filter((c) => !overriddenCells.has(`${c.canonicalKey}::${c.periodKey}`))
       .map((c) => ({ canonicalKey: c.canonicalKey, periodKey: c.periodKey })),
   });
 
-  return { ...view, documentName: workspace.name, runId: workspace.activeRunId };
+  return { ...view, documentName: workspace.name, runId: workspace.activeRunId, unmapped };
 }
 
 export async function setOverride(

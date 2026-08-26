@@ -51,33 +51,46 @@ function periodRank(key: string): number {
   return -1;
 }
 
+interface Bucket {
+  canonicalKey: string;
+  periodKey: string;
+  candidates: ExtractedFact[];
+}
+
 export function mergeFigures(figures: ExtractedFigure[]): MergeOutput {
-  const buckets = new Map<string, ExtractedFact[]>();
+  const buckets = new Map<string, Bucket>();
   const unmappedLabels: string[] = [];
   const periods = new Set<string>();
 
   for (const figure of figures) {
     periods.add(figure.period_key);
     const known = lineItem(figure.canonical_key);
-    if (!known || figure.canonical_key === UNMAPPED_KEY) {
-      unmappedLabels.push(figure.raw_label);
-      continue;
-    }
-    const id = `${figure.canonical_key}::${figure.period_key}`;
-    const list = buckets.get(id) ?? [];
-    list.push(toFact(figure));
-    buckets.set(id, list);
+    const unmapped = !known || figure.canonical_key === UNMAPPED_KEY;
+    if (unmapped) unmappedLabels.push(figure.raw_label);
+
+    // An unmapped figure is kept so the user can drag it to the right bucket, but
+    // its raw label is what identifies it: the canonical key says nothing, so two
+    // different stray labels in one period must not land on top of each other.
+    const canonicalKey = unmapped ? UNMAPPED_KEY : figure.canonical_key;
+    const id = unmapped
+      ? `${UNMAPPED_KEY}::${figure.raw_label}::${figure.period_key}`
+      : `${canonicalKey}::${figure.period_key}`;
+
+    const bucket = buckets.get(id) ?? { canonicalKey, periodKey: figure.period_key, candidates: [] };
+    bucket.candidates.push({ ...toFact(figure), canonicalKey });
+    buckets.set(id, bucket);
   }
 
   const facts: ExtractedFact[] = [];
   const conflicts: MergeConflict[] = [];
 
-  for (const [id, candidates] of buckets) {
+  for (const { canonicalKey, periodKey, candidates } of buckets.values()) {
     const distinct = new Set(candidates.map((c) => c.value));
     const best = [...candidates].sort((a, b) => b.confidence - a.confidence)[0];
     facts.push(best);
-    if (distinct.size > 1) {
-      const [canonicalKey, periodKey] = id.split("::");
+    // Nothing downstream reads an unmapped figure, so two readings of one cannot
+    // disagree in a way that matters. Reconciling it starts with mapping it.
+    if (distinct.size > 1 && canonicalKey !== UNMAPPED_KEY) {
       conflicts.push({ canonicalKey, periodKey, candidates });
     }
   }

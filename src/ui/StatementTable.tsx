@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
+import { useDroppable } from "@dnd-kit/core";
 import type { StatementRow, Cell } from "@/model/workspace";
 import { EditableCell } from "./EditableCell";
 import { Tooltip } from "./Tooltip";
@@ -12,11 +14,35 @@ interface Props {
   onEdit: (key: string, period: string, value: number) => void;
   onReset: (key: string, period: string) => void;
   onInspect: (cell: Cell) => void;
+  /**
+   * Show every line in the taxonomy, not just the ones that hold a figure. Set
+   * while a chip is being dragged, so an empty line is still somewhere to drop it.
+   */
+  revealEmptyRows?: boolean;
 }
 
-export function StatementTable({ title, rows, periods, onEdit, onReset, onInspect }: Props) {
+/** The label cell doubles as the drop target for an unmapped figure. */
+function LabelCell({ rowKey, children }: { rowKey: string; children: ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `row:${rowKey}` });
+  return (
+    <th
+      ref={setNodeRef}
+      scope="row"
+      className={`px-3 py-1.5 text-left align-middle font-normal transition-colors ${
+        isOver ? "bg-sky-500/15" : ""
+      }`}
+    >
+      {children}
+    </th>
+  );
+}
+
+export function StatementTable({ title, rows, periods, onEdit, onReset, onInspect, revealEmptyRows }: Props) {
   const populated = rows.filter((r) => r.cells.some((c) => c.value !== undefined));
-  if (populated.length === 0) return null;
+  // A statement with nothing in it is hidden, except mid-drag: a figure has to be
+  // droppable onto a cash-flow line even when the extractor found no cash flow.
+  if (populated.length === 0 && !revealEmptyRows) return null;
+  const visible = revealEmptyRows ? rows : populated;
 
   return (
     <section className="flex flex-col gap-3">
@@ -33,18 +59,18 @@ export function StatementTable({ title, rows, periods, onEdit, onReset, onInspec
             </tr>
           </thead>
           <tbody>
-            {populated.map((row) => (
+            {visible.map((row) => (
               <tr
                 key={row.def.key}
                 className={row.def.isSubtotal ? "border-t border-white/[0.06] font-medium" : ""}
               >
-                <th scope="row" className="px-3 py-1.5 text-left font-normal align-middle">
+                <LabelCell rowKey={row.def.key}>
                   <Tooltip label={tooltip(`item.${row.def.key}`)}>
                     <span className={row.def.parentKey ? "pl-4 text-neutral-400" : "text-neutral-200"}>
                       {row.def.label}
                     </span>
                   </Tooltip>
-                </th>
+                </LabelCell>
                 {row.cells.map((cell) => (
                   <EditableCell
                     key={cell.periodKey}
