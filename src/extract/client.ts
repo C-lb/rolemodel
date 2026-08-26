@@ -1,4 +1,4 @@
-import Anthropic, { toFile } from "@anthropic-ai/sdk";
+import Anthropic, { toFile, type Uploadable } from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { ExtractionSchema, type ExtractionResult } from "./schema";
 import { SYSTEM_PROMPT, buildUserPrompt, type ExtractionChunk } from "./prompt";
@@ -40,9 +40,31 @@ export interface CallResult {
   tokensOut: number;
 }
 
+/** The request shape is the SDK's own, so a malformed request is still a type error. */
+type ParseParams = Parameters<Anthropic["messages"]["parse"]>[0];
+
+/** Only what this module reads off a response. */
+export interface ClaudeResponse {
+  stop_reason: string | null;
+  stop_details?: { category?: string | null } | null;
+  parsed_output: ExtractionResult | null;
+  usage: { input_tokens: number; output_tokens: number };
+}
+
+/**
+ * The slice of the Anthropic client this module uses. A real `Anthropic` satisfies it,
+ * and a test can stand in for the network without reaching one — which is what makes
+ * the refusal, truncation and missing-output branches, and the request shape itself,
+ * checkable off-line.
+ */
+export interface ClaudeApi {
+  files: { upload(body: { file: Uploadable }): Promise<{ id: string }> };
+  messages: { parse(body: ParseParams): Promise<ClaudeResponse> };
+}
+
 let client: Anthropic | null = null;
 
-function getClient(): Anthropic {
+function getClient(): ClaudeApi {
   if (!process.env.ANTHROPIC_API_KEY) throw new MissingApiKeyError();
   client ??= new Anthropic();
   return client;
@@ -57,13 +79,13 @@ function getClient(): Anthropic {
  */
 const uploads = new WeakMap<Buffer, Promise<string>>();
 
-function uploadPdf(bytes: Buffer, filename: string): Promise<string> {
+function uploadPdf(api: ClaudeApi, bytes: Buffer, filename: string): Promise<string> {
   const existing = uploads.get(bytes);
   if (existing) return existing;
 
   const pending = (async () => {
     const file = await toFile(bytes, filename, { type: "application/pdf" });
-    const meta = await getClient().files.upload({ file });
+    const meta = await api.files.upload({ file });
     return meta.id;
   })();
 
@@ -73,15 +95,19 @@ function uploadPdf(bytes: Buffer, filename: string): Promise<string> {
   return pending;
 }
 
-export async function callClaude(chunk: ExtractionChunk): Promise<CallResult> {
+/**
+ * `api` defaults to the real client, so production callers pass one argument and the
+ * missing-key check still happens on the first call rather than at import time.
+ */
+export async function callClaude(chunk: ExtractionChunk, api: ClaudeApi = getClient()): Promise<CallResult> {
   const content: Anthropic.ContentBlockParam[] = [];
   if (chunk.pdfBytes) {
-    const fileId = await uploadPdf(chunk.pdfBytes, chunk.pdfFilename ?? "document.pdf");
+    const fileId = await uploadPdf(api, chunk.pdfBytes, chunk.pdfFilename ?? "document.pdf");
     content.push({ type: "document", source: { type: "file", file_id: fileId } });
   }
   content.push({ type: "text", text: buildUserPrompt(chunk) });
 
-  const response = await getClient().messages.parse({
+  const response = await api.messages.parse({
     model: MODEL_ID,
     max_tokens: MAX_TOKENS,
     thinking: { type: "adaptive" },
