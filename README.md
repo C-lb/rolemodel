@@ -27,7 +27,17 @@ average and ending balances, drag-built custom ratios over a safe expression par
 DuPont decomposition that shows its own reconciliation, and an on-demand generated reading
 per card that is grounded in the computed numbers and cached against them.
 
-M3 forecasting, M4 report and PDF export, and M5 an adversarial user-test pass follow.
+M3 (forecast, scenarios, sensitivity) is complete: a linked three-statement forecast over
+one to five annual periods, driven by seventeen editable drivers seeded from history, held
+in arbitrary scenarios (Base, Bull and Bear to start), and re-run live across a two-variable
+sensitivity grid. Two conventions matter to anyone checking a forecast number against their
+own: interest is computed on each period's **beginning** balances, not the average, so a year
+of heavy borrowing or repayment will read slightly under or over a model that averages; and a
+balance sheet that does not close on its own is plugged with **cash plus a revolver** — surplus
+cash accumulates, a shortfall below a minimum-cash floor draws the revolver, and neither is
+hidden inside a subtotal.
+
+M4 report and PDF export, and M5 an adversarial user-test pass follow.
 
 The full design spec lives in
 [`docs/superpowers/specs/`](docs/superpowers/specs/2026-08-25-financial-modelling-webapp-design.md).
