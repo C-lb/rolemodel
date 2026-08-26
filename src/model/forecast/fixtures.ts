@@ -414,15 +414,28 @@ export function fixtureForecastInput(options: EngineFixtureOptions = {}): Fixtur
 // convention, not the engine's internal one, or the history and forecast columns sit
 // side by side with opposite signs on the same line.
 
-/** The keys whose sign is a presentation choice rather than arithmetic. */
+/**
+ * The income-statement keys whose sign is a presentation choice rather than arithmetic,
+ * and which the forecast therefore prints in the workspace's own convention. Must match
+ * the engine's `SIGN_OBSERVED_KEYS`; a test asserts it does.
+ */
 export const SIGN_FLIPPED_KEYS = [
-  "cost_of_revenue", "interest_expense", "income_tax_expense", "capital_expenditures",
-  "dividends_paid", "research_development", "selling_general_admin",
+  "cost_of_revenue", "interest_expense", "income_tax_expense",
+  "research_development", "selling_general_admin",
 ];
+
+/**
+ * The cash-flow outflows a costs-positive filing ALSO prints positive, and which the
+ * forecast nonetheless keeps negative. The cash-flow statement aggregates signed cash
+ * effects by addition, so `+96.8` of capital expenditure would make the displayed
+ * sections disagree with the displayed bottom line. A filing may present it either way;
+ * a working model may not.
+ */
+export const POSITIVE_HISTORY_ONLY_KEYS = ["capital_expenditures", "dividends_paid"];
 
 function withPositiveCosts(row: Row): Row {
   const out: Row = { ...row };
-  for (const key of SIGN_FLIPPED_KEYS) {
+  for (const key of [...SIGN_FLIPPED_KEYS, ...POSITIVE_HISTORY_ONLY_KEYS]) {
     if (out[key] !== undefined) out[key] = Math.abs(out[key]);
   }
   return out;

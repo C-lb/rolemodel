@@ -11,6 +11,7 @@ import {
   FY2024,
   PLUG_PERIODS,
   SIGN_FLIPPED_KEYS,
+  POSITIVE_HISTORY_ONLY_KEYS,
   fixtureForecastInput,
   plugForecastInput,
   positiveCostForecastInput,
@@ -139,6 +140,22 @@ describe("runForecast: sign convention", () => {
     }
   });
 
+  it("keeps cash-flow outflows negative even when the filing printed them positive", () => {
+    // The cash-flow statement adds signed cash effects. A positive capital expenditure
+    // makes the displayed sections disagree with the displayed bottom line, whatever
+    // the filing's presentation, so these two lines are not sign-observed.
+    const rows = positiveCostRows();
+    const result = runForecast(positiveCostForecastInput());
+    for (const key of POSITIVE_HISTORY_ONLY_KEYS) {
+      expect(Math.sign(rows.FY2024[key]), `${key} is positive in this history`).toBe(1);
+      for (const period of FORECAST_PERIODS) {
+        expect(Math.sign(result.valueAt(key, period) as number), `${key} in ${period}`).toBe(-1);
+      }
+    }
+    expect(SIGN_OBSERVED_KEYS.has("capital_expenditures")).toBe(false);
+    expect(SIGN_OBSERVED_KEYS.has("dividends_paid")).toBe(false);
+  });
+
   it("changes only the presentation, never the balance sheet", () => {
     const negative = run();
     const positive = runForecast(positiveCostForecastInput());
@@ -160,17 +177,17 @@ describe("runForecast: sign convention", () => {
 
   it("skips a zero and reads the period before it", () => {
     const rows = historicalRows();
-    rows.FY2024 = { ...rows.FY2024, capital_expenditures: 0 };
-    rows.FY2023 = { ...rows.FY2023, capital_expenditures: 80 };
+    rows.FY2024 = { ...rows.FY2024, income_tax_expense: 0 };
+    rows.FY2023 = { ...rows.FY2023, income_tax_expense: 54 };
     const result = runForecast(fixtureForecastInput({ rows }));
-    expect(Math.sign(result.valueAt("capital_expenditures", "FY2025") as number)).toBe(1);
+    expect(Math.sign(result.valueAt("income_tax_expense", "FY2025") as number)).toBe(1);
   });
 
   it("keeps spec 5.1's convention when history says nothing", () => {
     // The plug fixture reports none of the signed keys at all.
-    const result = runForecast(plugForecastInput({ drivers: { capex_pct_revenue: 0.1, gross_margin: 0.4 } }));
-    expect(Math.sign(result.valueAt("capital_expenditures", "FY2025") as number)).toBe(-1);
+    const result = runForecast(plugForecastInput({ drivers: { capex_pct_revenue: 0.1, gross_margin: 0.4, rd_pct_revenue: 0.05 } }));
     expect(Math.sign(result.valueAt("cost_of_revenue", "FY2025") as number)).toBe(-1);
+    expect(Math.sign(result.valueAt("research_development", "FY2025") as number)).toBe(-1);
   });
 });
 
@@ -218,6 +235,53 @@ describe("runForecast: subtotals and held items", () => {
       expectMoney(result.valueAt("total_assets", period), assets, `total_assets in ${period}`);
       const liabilities = TOTAL_LIABILITIES_PARTS.reduce((s, k) => s + (result.valueAt(k, period) as number), 0);
       expectMoney(result.valueAt("total_liabilities", period), liabilities, `total_liabilities in ${period}`);
+    }
+  });
+
+  it("foots every subtotal the taxonomy gives no children, over both conventions", () => {
+    // The gap the sign bug shipped through. The component check above only reaches
+    // subtotals that have `parentKey` children; `net_change_in_cash` has none, because
+    // the four cash-flow sections are all top-level, so nothing asserted that the
+    // displayed bottom line equalled the displayed sections. It did not: flipping
+    // capital expenditure and dividends put the cash-flow statement out by 295.2.
+    //
+    // Every parentless subtotal now has a footing, and the completeness assertion below
+    // means a new one cannot be added without one.
+    type Lookup = (key: string) => number;
+    const footings: Record<string, (v: Lookup) => number> = {
+      // Income-statement parents SUBTRACT their cost children, which is how a
+      // costs-positive filing prints and how a costs-negative one reads once the
+      // magnitude is taken. The same expression foots under either convention.
+      gross_profit: (v) => v("revenue") - Math.abs(v("cost_of_revenue")),
+      operating_income: (v) => v("gross_profit") - Math.abs(v("operating_expenses")),
+      pretax_income: (v) => v("operating_income") - Math.abs(v("interest_expense")) + v("other_income_expense"),
+      net_income: (v) => v("pretax_income") - Math.abs(v("income_tax_expense")),
+      total_assets: (v) => TOTAL_ASSETS_PARTS.reduce((s, k) => s + v(k), 0),
+      total_liabilities: (v) => TOTAL_LIABILITIES_PARTS.reduce((s, k) => s + v(k), 0),
+      // The cash-flow statement ADDS signed cash effects, in every convention. This is
+      // the assertion that was missing.
+      net_change_in_cash: (v) =>
+        v("cash_from_operations") + v("cash_from_investing") + v("cash_from_financing") + v("fx_effect_on_cash"),
+    };
+
+    const parentless = TAXONOMY
+      .filter((i) => i.isSubtotal && !TAXONOMY.some((c) => c.parentKey === i.key))
+      .map((i) => i.key);
+    expect([...parentless].sort(), "a parentless subtotal has no footing").toEqual(Object.keys(footings).sort());
+
+    const fixtures: { name: string; input: ForecastInput }[] = [
+      { name: "costs negative", input: fixtureForecastInput() },
+      { name: "costs positive", input: positiveCostForecastInput() },
+    ];
+    for (const { name, input } of fixtures) {
+      const result = runForecast(input);
+      expect(result.ok).toBe(true);
+      for (const period of FORECAST_PERIODS) {
+        const v: Lookup = (key) => result.valueAt(key, period) as number;
+        for (const [key, foot] of Object.entries(footings)) {
+          expectMoney(v(key), foot(v), `${key} in ${period} (${name})`);
+        }
+      }
     }
   });
 

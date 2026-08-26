@@ -91,17 +91,25 @@ const HELD_AT_ZERO_KEYS: readonly string[] = [
 ];
 
 /**
- * Lines whose sign is a reporting convention rather than arithmetic. The engine computes
- * every one of them in spec 5.1's convention internally — costs negative, so that
- * `gross_profit = revenue + cost_of_revenue` is addition and nothing has to know which
- * way a particular filing prints — and then flips the emitted value to match whatever
- * convention the workspace's own history used. A filing that prints cost of revenue
- * positive gets a forecast that prints it positive too, rather than a sign flip at the
- * history/forecast seam.
+ * Income-statement lines whose sign is a reporting convention rather than arithmetic. The
+ * engine computes every one of them in spec 5.1's convention internally — costs negative,
+ * so that `gross_profit = revenue + cost_of_revenue` is addition and nothing has to know
+ * which way a particular filing prints — and then flips the emitted value to match
+ * whatever convention the workspace's own history used. A filing that prints cost of
+ * revenue positive gets a forecast that prints it positive too, rather than a sign flip
+ * at the history/forecast seam.
+ *
+ * CASH-FLOW LINES ARE NOT ON THIS LIST, and `capital_expenditures` and `dividends_paid`
+ * were taken off it. An income-statement parent subtracts its cost children, so
+ * `operating_income = gross_profit - operating_expenses` foots whichever way the costs
+ * are printed. The cash-flow statement aggregates by addition, and a signed cash effect
+ * IS the semantics of that statement: there is no presentation convention in which
+ * `+96.8` of capital expenditure adds up. Flipping them made the displayed sections
+ * disagree with the displayed bottom line by twice the outflow.
  */
 const SIGN_OBSERVED_KEYS: ReadonlySet<string> = new Set([
-  "cost_of_revenue", "interest_expense", "income_tax_expense", "capital_expenditures",
-  "dividends_paid", "research_development", "selling_general_admin",
+  "cost_of_revenue", "interest_expense", "income_tax_expense",
+  "research_development", "selling_general_admin",
 ]);
 
 /**
@@ -270,6 +278,13 @@ export function runForecast(input: ForecastInput): ForecastResult {
   function openingAt(key: string, priorPeriod: string): number {
     const forecast = raw.get(cellId(key, priorPeriod));
     if (forecast !== undefined) return forecast;
+    // SEAM. A historical value arrives in the workspace's own convention, and is
+    // returned here into a spec-5.1-convention context. That is safe only because no
+    // key in `REQUIRED_OPENING_KEYS` or `HELD_FLAT_KEYS` is in `SIGN_OBSERVED_KEYS` —
+    // balances are positive under either convention. If a future roll-forward opens
+    // from a line that IS sign-observed, this read has to divide the sign back out
+    // first, or the first forecast period will open from a flipped number while every
+    // later period opens from a raw one.
     const historical = input.valueAt(key, priorPeriod);
     if (historical !== undefined && Number.isFinite(historical)) return historical;
     if (lineItem(key)?.absentMeansZero === true) return 0;
