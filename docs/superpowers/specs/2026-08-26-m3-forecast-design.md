@@ -179,9 +179,23 @@ for any filing that prints costs positive.
 
 So the engine applies a sign only as it writes each cell: `historicalSign(key)` reads the last
 historical non-zero value for that key and matches it, falling back to the convention above when
-history has none. Most recent non-zero wins; signs are never averaged across periods. This
-applies to `cost_of_revenue`, `interest_expense`, `income_tax_expense`, `capital_expenditures`,
-`dividends_paid`, `research_development` and `selling_general_admin`. The forecast must not invent a second sign
+history has none. Most recent non-zero wins; signs are never averaged across periods.
+
+**Income-statement cost lines only**: `cost_of_revenue`, `interest_expense`,
+`income_tax_expense`, `research_development` and `selling_general_admin`. Cash-flow lines are
+never re-signed.
+
+That split is not arbitrary. Income-statement parents subtract, so a costs-positive statement
+foots: `operating_income = 484 - 181.5` with `operating_expenses` shown positive is exactly how
+such a filing prints. The cash-flow statement aggregates by addition, and a signed cash effect is
+its semantics — there is no presentation convention in which `+96.8` of capital expenditure adds
+up. An earlier revision of this section included `capital_expenditures` and `dividends_paid`, and
+a costs-positive fixture then produced a cash-flow statement whose sections summed to 448.1
+against a bottom line of 152.9, reading as though investing and financing generated cash in a
+year of capex, repayment and dividends.
+
+`debt_issued_repaid` and `other_income_expense` are excluded for a different reason: both are net
+figures that can legitimately take either sign, so there is no convention to observe. The forecast must not invent a second sign
 convention, and a test asserts the forecast's sign for each of `cost_of_revenue`,
 `interest_expense`, `income_tax_expense`, `capital_expenditures` and `dividends_paid`
 matches the sign of the same key in the last historical period.
