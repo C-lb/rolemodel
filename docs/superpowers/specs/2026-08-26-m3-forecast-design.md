@@ -105,6 +105,18 @@ interface SeededDriver { key: string; value: number; basis: DriverBasis; note: s
 - `interest_rate_debt` is `interest_expense / total opening debt`, clamped to 0..0.25.
 - `min_cash` defaults to the last historical cash balance, so a freshly seeded Base draws
   no revolver in period one unless the business actually burns cash.
+- `other_income_expense` is the last historical value. "Held flat" in §4's table means flat at
+  the last actual, not flat at zero.
+- `dividend_payout` is `|dividends_paid| / net_income`, clamped 0..1. Added during
+  implementation: the constants below are a fallback clause, not a prohibition on deriving, and
+  this driver had no derivation rule only because the list overlooked it. Zeroing a dividend
+  payer's distributions overstates forecast cash in every period, and that error flows straight
+  into the cash plug and the revolver draw.
+
+`interest_rate_cash` and `debt_repayment` are the two drivers with no honest derivation.
+Interest income is embedded inside `other_income_expense` and is never separately reported, and
+`debt_issued_repaid` is a net figure whose split into issuance and repayment would be guesswork.
+Both seed from their constants, and their notes say why.
 
 Where an input is missing, zero, or produces a value outside its clamp, the driver falls
 back to a documented constant with `basis: "default"` and a note saying why. The defaults
