@@ -50,12 +50,26 @@ describe("taxonomy", () => {
     expect(revolver!.order).toBeLessThan(otherCurrentLiabilities.order);
   });
 
-  it("marks absentMeansZero on revolver only", () => {
+  it("has a revolver_movement line item between debt_issued_repaid and equity_issued_repurchased", () => {
+    // Spec section 2 promises the revolver is visible in the financing section and that
+    // nothing is hidden inside a subtotal. Without this line the plug's cash effect had
+    // to be added to `cash_from_financing` directly, making it the one subtotal that is
+    // not the sum of its components.
+    const movement = lineItem("revolver_movement");
+    expect(movement).toBeDefined();
+    expect(movement!.statement).toBe("cashflow");
+    expect(movement!.parentKey).toBe("cash_from_financing");
+    expect(movement!.isSubtotal).toBe(false);
+    expect(movement!.order).toBeGreaterThan(lineItem("debt_issued_repaid")!.order);
+    expect(movement!.order).toBeLessThan(lineItem("equity_issued_repurchased")!.order);
+  });
+
+  it("marks absentMeansZero on the two forecast-only constructs only", () => {
     // The escape hatch from the ratio engine's "missing input makes the ratio
-    // unavailable" rule stays a single, deliberate opt-in, not a list that quietly
-    // grows.
+    // unavailable" rule stays a deliberate opt-in, not a list that quietly grows.
+    // Both entries name a forecast plug that no historical document can report.
     const flagged = TAXONOMY.filter((i) => i.absentMeansZero === true).map((i) => i.key);
-    expect(flagged).toEqual(["revolver"]);
+    expect(flagged).toEqual(["revolver", "revolver_movement"]);
   });
 
   it("never offers an absentMeansZero key to the extraction model", () => {

@@ -1,5 +1,4 @@
 import { TAXONOMY, lineItem } from "../taxonomy";
-import { closeEnough } from "../tolerance";
 import { sortPeriodsMostRecentFirst } from "../periods";
 import { DRIVER_DEFAULTS, DRIVER_KEYS, driver } from "./drivers";
 import type { DriverBasis } from "./seed";
@@ -61,6 +60,20 @@ const ANNUAL_PERIOD = /^FY\d{4}$/;
 const DAYS_IN_YEAR = 365;
 
 /**
+ * `closeEnough` in `../tolerance` allows `max(1, 0.005 * scale)`, which is right for
+ * comparing two independently extracted money figures and far too loose here: on a 1443
+ * balance sheet it permits a seven-unit break, so how sensitive the articulation guard
+ * is ends up decided by how big the test fixture happens to be rather than by the
+ * engine. Spec section 5.5 closes as an algebraic identity, so the only residual is
+ * floating-point noise — around 1e-12 at these magnitudes. Same reasoning as
+ * `ratiosAgree` in `ratios/compute.ts`, opposite direction.
+ */
+export function articulates(a: number, b: number): boolean {
+  const scale = Math.max(Math.abs(a), Math.abs(b));
+  return Math.abs(a - b) <= Math.max(1e-6, scale * 1e-9);
+}
+
+/**
  * Held flat at the opening balance (spec 5.4). Absent in history means flat at zero:
  * a balance the extraction never saw cannot be held flat at an unknown, and zero in
  * both periods leaves the articulation invariant untouched.
@@ -78,6 +91,20 @@ const HELD_AT_ZERO_KEYS: readonly string[] = [
 ];
 
 /**
+ * Lines whose sign is a reporting convention rather than arithmetic. The engine computes
+ * every one of them in spec 5.1's convention internally — costs negative, so that
+ * `gross_profit = revenue + cost_of_revenue` is addition and nothing has to know which
+ * way a particular filing prints — and then flips the emitted value to match whatever
+ * convention the workspace's own history used. A filing that prints cost of revenue
+ * positive gets a forecast that prints it positive too, rather than a sign flip at the
+ * history/forecast seam.
+ */
+const SIGN_OBSERVED_KEYS: ReadonlySet<string> = new Set([
+  "cost_of_revenue", "interest_expense", "income_tax_expense", "capital_expenditures",
+  "dividends_paid", "research_development", "selling_general_admin",
+]);
+
+/**
  * The opening balances the engine rolls forward or divides by. Absent means the first
  * forecast period has nothing to start from, which is `forecast_missing_base`.
  *
@@ -92,6 +119,28 @@ const REQUIRED_OPENING_KEYS: readonly string[] = [
   "accounts_payable", "property_plant_equipment", "long_term_debt", "revolver",
   "common_stock_apic", "retained_earnings",
 ];
+
+/**
+ * The components of a subtotal that the taxonomy gives no `parentKey` children —
+ * `total_assets` and `total_liabilities` are summed from the top-level lines that sit
+ * between the previous total and themselves. Derived from `TAXONOMY` rather than
+ * hardcoded, so a balance-sheet line added later joins the total instead of silently
+ * dropping out of it.
+ */
+export function balanceSheetSpan(subtotalKey: string, afterKey: string | null): string[] {
+  const cutoff = lineItem(subtotalKey)?.order ?? 0;
+  const floor = afterKey === null ? -Infinity : (lineItem(afterKey)?.order ?? -Infinity);
+  return TAXONOMY.filter((i) =>
+    i.statement === "balance" &&
+    i.parentKey === null &&
+    i.key !== subtotalKey &&
+    i.order > floor &&
+    i.order < cutoff,
+  ).sort((a, b) => a.order - b.order).map((i) => i.key);
+}
+
+export const TOTAL_ASSETS_PARTS = balanceSheetSpan("total_assets", null);
+export const TOTAL_LIABILITIES_PARTS = balanceSheetSpan("total_liabilities", "total_assets");
 
 function cellId(key: string, period: string): string {
   return `${key}@${period}`;
@@ -115,7 +164,10 @@ export function runForecast(input: ForecastInput): ForecastResult {
   const findings: Finding[] = [];
   const cells: ForecastCell[] = [];
   const plugs: PlugDetail[] = [];
-  const index = new Map<string, number>();
+  /** Spec 5.1's convention. Everything the engine computes with reads this. */
+  const raw = new Map<string, number>();
+  /** The workspace's own convention. Everything the engine emits reads this. */
+  const shown = new Map<string, number>();
 
   const blocked = (): ForecastResult => ({
     ok: false,
@@ -125,8 +177,10 @@ export function runForecast(input: ForecastInput): ForecastResult {
     valueAt: () => undefined,
   });
 
+  const orderedHistory = sortPeriodsMostRecentFirst(input.historicalPeriods);
+
   // ---- Gate 1: the base period must be an annual one (spec 5.6) ----------------
-  const basePeriod = sortPeriodsMostRecentFirst(input.historicalPeriods)[0];
+  const basePeriod = orderedHistory[0];
   if (basePeriod === undefined || !ANNUAL_PERIOD.test(basePeriod)) {
     findings.push({
       code: "forecast_not_annual",
@@ -159,6 +213,32 @@ export function runForecast(input: ForecastInput): ForecastResult {
     return blocked();
   }
 
+  /**
+   * The sign this workspace's own filings printed for a line, taken from the most recent
+   * historical period that reports it as anything other than zero. Not an average across
+   * periods: a filing that changed convention mid-history is best represented by the one
+   * the reader last saw. Zero means history is silent, and spec 5.1's convention stands.
+   */
+  function historicalSign(key: string): -1 | 0 | 1 {
+    for (const period of orderedHistory) {
+      const v = input.valueAt(key, period);
+      if (v === undefined || !Number.isFinite(v) || v === 0) continue;
+      return v > 0 ? 1 : -1;
+    }
+    return 0;
+  }
+
+  const observedSign = new Map<string, -1 | 0 | 1>(
+    [...SIGN_OBSERVED_KEYS].map((key) => [key, historicalSign(key)]),
+  );
+
+  /** Spec 5.1's value, turned into the convention the workspace's history uses. */
+  function asShown(key: string, value: number): number {
+    const observed = observedSign.get(key) ?? 0;
+    if (observed === 0 || value === 0 || !Number.isFinite(value)) return value;
+    return Math.sign(value) === observed ? value : -value;
+  }
+
   // ---- Driver provenance (spec 5.6, info) -------------------------------------
   const basisAt = input.driverBasisAt;
   if (basisAt !== undefined) {
@@ -188,7 +268,7 @@ export function runForecast(input: ForecastInput): ForecastResult {
    * income on opening cash all read the same helper.
    */
   function openingAt(key: string, priorPeriod: string): number {
-    const forecast = index.get(cellId(key, priorPeriod));
+    const forecast = raw.get(cellId(key, priorPeriod));
     if (forecast !== undefined) return forecast;
     const historical = input.valueAt(key, priorPeriod);
     if (historical !== undefined && Number.isFinite(historical)) return historical;
@@ -203,14 +283,22 @@ export function runForecast(input: ForecastInput): ForecastResult {
   for (const period of input.forecastPeriods) {
     const prior = priorPeriod;
 
+    /**
+     * Records one cell. `value` arrives in spec 5.1's convention and is stored that way
+     * for the engine's own reads; the emitted cell and `inputs` carry the workspace's
+     * convention. Returns the spec-convention value, because that is what the rest of
+     * section 5 does arithmetic with.
+     */
     const put = (
       key: string,
       value: number,
       formula: string,
       inputs: { label: string; value: number }[],
     ): number => {
-      cells.push({ canonicalKey: key, periodKey: period, value, formula, inputs });
-      index.set(cellId(key, period), value);
+      const display = asShown(key, value);
+      cells.push({ canonicalKey: key, periodKey: period, value: display, formula, inputs });
+      raw.set(cellId(key, period), value);
+      shown.set(cellId(key, period), display);
       return value;
     };
 
@@ -231,12 +319,21 @@ export function runForecast(input: ForecastInput): ForecastResult {
       value: d(key),
     });
 
-    /** A subtotal summed from its taxonomy components, never carried forward. */
+    /**
+     * A subtotal summed from its taxonomy components, never carried forward. Emitted in
+     * the workspace's convention (so it stays the sum of the components as displayed)
+     * and returned in spec 5.1's (so the arithmetic below it stays correct). The two are
+     * the same number for any workspace whose filings print costs negative.
+     */
     const putSubtotal = (key: string): number => {
       const parts = componentsOf(key);
-      const inputs = parts.map((p) => ({ label: itemLabel(p), value: index.get(cellId(p, period)) ?? 0 }));
-      const value = inputs.reduce((sum, i) => sum + i.value, 0);
-      return put(key, value, parts.join(" + "), inputs);
+      const inputs = parts.map((p) => ({ label: itemLabel(p), value: shown.get(cellId(p, period)) ?? 0 }));
+      const rawValue = parts.reduce((sum, p) => sum + (raw.get(cellId(p, period)) ?? 0), 0);
+      const display = inputs.reduce((sum, i) => sum + i.value, 0);
+      cells.push({ canonicalKey: key, periodKey: period, value: display, formula: parts.join(" + "), inputs });
+      raw.set(cellId(key, period), rawValue);
+      shown.set(cellId(key, period), display);
+      return rawValue;
     };
 
     const putHeldFlat = (key: string): number => {
@@ -260,7 +357,7 @@ export function runForecast(input: ForecastInput): ForecastResult {
       [{ label: "Revenue", value: revenue }, dInput("gross_margin")],
     );
 
-    put("gross_profit", revenue + costOfRevenue, "revenue + cost_of_revenue", [
+    const grossProfit = put("gross_profit", revenue + costOfRevenue, "revenue + cost_of_revenue", [
       { label: "Revenue", value: revenue },
       { label: itemLabel("cost_of_revenue"), value: costOfRevenue },
     ]);
@@ -276,7 +373,6 @@ export function runForecast(input: ForecastInput): ForecastResult {
     ]);
 
     const operatingExpenses = putSubtotal("operating_expenses");
-    const grossProfit = index.get(cellId("gross_profit", period)) ?? 0;
 
     const operatingIncome = put(
       "operating_income",
@@ -408,8 +504,12 @@ export function runForecast(input: ForecastInput): ForecastResult {
       [{ label: "Revenue", value: revenue }, dInput("capex_pct_revenue")],
     );
 
-    put("acquisitions", 0, "0 (held at zero)", []);
-    put("other_investing", 0, "0 (held at zero)", []);
+    // Held at zero, from the constant, so removing a key from the constant removes the
+    // cell rather than leaving a hardcoded `put` the constant no longer covers.
+    for (const key of HELD_AT_ZERO_KEYS) {
+      if (lineItem(key)?.parentKey !== "cash_from_investing") continue;
+      put(key, 0, "0 (held at zero)", []);
+    }
     const cashFromInvesting = putSubtotal("cash_from_investing");
 
     const debtIssuedRepaid = put(
@@ -426,8 +526,10 @@ export function runForecast(input: ForecastInput): ForecastResult {
       [{ label: itemLabel("net_income"), value: netIncome }, dInput("dividend_payout")],
     );
 
-    put("equity_issued_repurchased", 0, "0 (held at zero)", []);
-    put("other_financing", 0, "0 (held at zero)", []);
+    for (const key of HELD_AT_ZERO_KEYS) {
+      if (lineItem(key)?.parentKey !== "cash_from_financing") continue;
+      put(key, 0, "0 (held at zero)", []);
+    }
 
     // ================= 5.3 The plug =================
 
@@ -457,20 +559,15 @@ export function runForecast(input: ForecastInput): ForecastResult {
 
     plugs.push({ periodKey: period, cashBeforePlug, drawn, repaid, revolverBalance });
 
-    // The taxonomy has no cash-flow line for the revolver, so the movement is added to
-    // the financing subtotal directly and disclosed separately in `PlugDetail`.
-    // Spec 5.3 writes it this way; the balance-sheet `revolver` line is where a reader
-    // sees the balance itself.
-    const cashFromFinancing = put(
-      "cash_from_financing",
-      preplugFinancing + revolverMovement,
-      "debt_issued_repaid + dividends_paid + revolver movement",
-      [
-        { label: itemLabel("debt_issued_repaid"), value: debtIssuedRepaid },
-        { label: itemLabel("dividends_paid"), value: dividendsPaid },
-        { label: "Revolver drawn (repaid)", value: revolverMovement },
-      ],
-    );
+    // The plug's cash effect gets its own cash-flow line, so `cash_from_financing` stays
+    // the sum of its components like every other subtotal and nothing is hidden inside
+    // it (spec section 2).
+    put("revolver_movement", revolverMovement, "revolver - revolver[" + prior + "]", [
+      { label: "Drawn", value: drawn },
+      { label: "Repaid", value: repaid },
+    ]);
+
+    const cashFromFinancing = putSubtotal("cash_from_financing");
 
     put("fx_effect_on_cash", 0, "0 (no currency translation in a forecast)", []);
 
@@ -509,18 +606,14 @@ export function runForecast(input: ForecastInput): ForecastResult {
     putHeldFlat("intangible_assets");
     putHeldFlat("other_noncurrent_assets");
 
-    const totalAssetsParts = [
-      "total_current_assets", "property_plant_equipment", "goodwill",
-      "intangible_assets", "other_noncurrent_assets",
-    ];
-    const totalAssetsInputs = totalAssetsParts.map((k) => ({
+    const totalAssetsInputs = TOTAL_ASSETS_PARTS.map((k) => ({
       label: itemLabel(k),
-      value: index.get(cellId(k, period)) ?? 0,
+      value: raw.get(cellId(k, period)) ?? 0,
     }));
     const totalAssets = put(
       "total_assets",
       totalAssetsInputs.reduce((s, i) => s + i.value, 0),
-      totalAssetsParts.join(" + "),
+      TOTAL_ASSETS_PARTS.join(" + "),
       totalAssetsInputs,
     );
 
@@ -543,15 +636,14 @@ export function runForecast(input: ForecastInput): ForecastResult {
     );
     putHeldFlat("other_noncurrent_liabilities");
 
-    const totalLiabilitiesParts = ["total_current_liabilities", "long_term_debt", "other_noncurrent_liabilities"];
-    const totalLiabilitiesInputs = totalLiabilitiesParts.map((k) => ({
+    const totalLiabilitiesInputs = TOTAL_LIABILITIES_PARTS.map((k) => ({
       label: itemLabel(k),
-      value: index.get(cellId(k, period)) ?? 0,
+      value: raw.get(cellId(k, period)) ?? 0,
     }));
     const totalLiabilities = put(
       "total_liabilities",
       totalLiabilitiesInputs.reduce((s, i) => s + i.value, 0),
-      totalLiabilitiesParts.join(" + "),
+      TOTAL_LIABILITIES_PARTS.join(" + "),
       totalLiabilitiesInputs,
     );
 
@@ -576,7 +668,7 @@ export function runForecast(input: ForecastInput): ForecastResult {
     const totalEquity = putSubtotal("total_equity");
 
     // ================= 5.5 The articulation invariant =================
-    if (!closeEnough(totalAssets, totalLiabilities + totalEquity)) {
+    if (!articulates(totalAssets, totalLiabilities + totalEquity)) {
       findings.push({
         code: "forecast_articulation_broken",
         severity: "blocking",
@@ -586,7 +678,7 @@ export function runForecast(input: ForecastInput): ForecastResult {
         remediation: "This is a defect in the forecast engine, not in the assumptions. Report it with the workspace and the scenario.",
       });
     }
-    if (!closeEnough(openingCash + netChangeInCash, cash)) {
+    if (!articulates(openingCash + netChangeInCash, cash)) {
       findings.push({
         code: "forecast_articulation_broken",
         severity: "blocking",
@@ -628,7 +720,7 @@ export function runForecast(input: ForecastInput): ForecastResult {
     });
   }
 
-  const negativeEquity = input.forecastPeriods.filter((p) => (index.get(cellId("total_equity", p)) ?? 0) < 0);
+  const negativeEquity = input.forecastPeriods.filter((p) => (raw.get(cellId("total_equity", p)) ?? 0) < 0);
   if (negativeEquity.length > 0) {
     findings.push({
       code: "forecast_equity_negative",
@@ -647,8 +739,8 @@ export function runForecast(input: ForecastInput): ForecastResult {
     cells,
     plugs,
     findings,
-    valueAt: (key: string, period: string) => index.get(cellId(key, period)),
+    valueAt: (key: string, period: string) => shown.get(cellId(key, period)),
   };
 }
 
-export { HELD_AT_ZERO_KEYS, HELD_FLAT_KEYS, REQUIRED_OPENING_KEYS };
+export { HELD_AT_ZERO_KEYS, HELD_FLAT_KEYS, REQUIRED_OPENING_KEYS, SIGN_OBSERVED_KEYS };

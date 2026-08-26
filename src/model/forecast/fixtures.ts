@@ -180,15 +180,14 @@ export function withGapBeforeLatest(): FixtureOptions {
  * A fixture seeded by the code under test could not disagree with it. The working-capital
  * days deliberately reproduce the FY2024 ratios exactly (110/1100 = 0.1, 66/660 = 0.1,
  * 99/660 = 0.15) so the working-capital movement is driven by growth alone and can be
- * checked in one line; growth is set high enough that dropping the movement moves the
- * balance sheet by more than `closeEnough` tolerates.
+ * checked in one line.
  *
  *   dso 36.5  ->  36.5 / 365  = 0.10 of revenue
  *   dio 36.5  ->  36.5 / 365  = 0.10 of |cost of revenue|
  *   dpo 54.75 ->  54.75 / 365 = 0.15 of |cost of revenue|
  */
 export const ENGINE_DRIVERS: Readonly<Record<string, number>> = {
-  revenue_growth: 0.3,
+  revenue_growth: 0.1,
   gross_margin: 0.4,
   rd_pct_revenue: 0.05,
   sga_pct_revenue: 0.1,
@@ -213,67 +212,74 @@ export const ENGINE_DRIVERS: Readonly<Record<string, number>> = {
  */
 export const EXPECTED_FY2025: Row = {
   // ---- Income statement (5.1) ----
-  revenue: 1430,                    // 1100 * (1 + 0.30)
-  cost_of_revenue: -858,            // -(1430 * (1 - 0.40))
-  gross_profit: 572,                // 1430 + (-858)
-  research_development: -71.5,      // -(1430 * 0.05)
-  selling_general_admin: -143,      // -(1430 * 0.10)
-  operating_expenses: -214.5,       // -71.5 + (-143)
-  operating_income: 357.5,          // 572 + (-214.5)
+  // NOTE ON SIGNS. This fixture's history is mixed on purpose, because real filings are:
+  // cost of revenue, interest, tax, capex and dividends print negative, while R&D and
+  // SG&A print positive. The engine computes every one of them negative internally
+  // (spec 5.1) and emits each in the convention its OWN history used, so the forecast
+  // column never flips sign against the history column beside it. That is why R&D and
+  // SG&A are positive below while cost of revenue is negative.
+  revenue: 1210,                    // 1100 * (1 + 0.10)
+  cost_of_revenue: -726,            // -(1210 * (1 - 0.40))
+  gross_profit: 484,                // 1210 + (-726)
+  research_development: 60.5,       // 1210 * 0.05, printed positive: see the note below
+  selling_general_admin: 121,       // 1210 * 0.10, printed positive
+  operating_expenses: 181.5,        // 60.5 + 121, the sum of the components as printed
+  operating_income: 302.5,          // 484 - 181.5, computed in the engine's own convention
   interest_expense: -20,            // -((50 + 150 + 0) * 0.10); revolver[P] absent = 0
   other_income_expense: 35,         // 15 + 400 * 0.05
-  pretax_income: 372.5,             // 357.5 + (-20) + 35
-  income_tax_expense: -74.5,        // -(max(372.5, 0) * 0.20)
-  net_income: 298,                  // 372.5 + (-74.5)
+  pretax_income: 317.5,             // 302.5 + (-20) + 35
+  income_tax_expense: -63.5,        // -(max(317.5, 0) * 0.20)
+  net_income: 254,                  // 317.5 + (-63.5)
 
   // ---- Cash flow (5.2, 5.3) ----
-  cf_net_income: 298,               // the same net income, on its cash-flow line
-  depreciation_amortisation: 50,    // 500 * 0.10, on OPENING PP&E (closing would be 61.44)
-  stock_based_compensation: 28.6,   // 1430 * 0.02
-  change_in_working_capital: -23.1, // -((143-110) + (85.8-66) - (128.7-99)) = -(33 + 19.8 - 29.7)
-  cash_from_operations: 353.5,      // 298 + 50 + 28.6 + (-23.1)
-  capital_expenditures: -114.4,     // -(1430 * 0.08)
+  cf_net_income: 254,               // the same net income, on its cash-flow line
+  depreciation_amortisation: 50,    // 500 * 0.10, on OPENING PP&E (closing would be 54.68)
+  stock_based_compensation: 24.2,   // 1210 * 0.02
+  change_in_working_capital: -7.7,  // -((121-110) + (72.6-66) - (108.9-99)) = -(11 + 6.6 - 9.9)
+  cash_from_operations: 320.5,      // 254 + 50 + 24.2 + (-7.7)
+  capital_expenditures: -96.8,      // -(1210 * 0.08)
   acquisitions: 0,
   other_investing: 0,
-  cash_from_investing: -114.4,      // -114.4 + 0 + 0
+  cash_from_investing: -96.8,       // -96.8 + 0 + 0
   debt_issued_repaid: -20,          // -20 (the debt_repayment driver)
+  revolver_movement: 0,             // nothing drawn, nothing outstanding to repay
   equity_issued_repurchased: 0,
-  dividends_paid: -59.6,            // -(max(298, 0) * 0.20)
+  dividends_paid: -50.8,            // -(max(254, 0) * 0.20)
   other_financing: 0,
-  cash_from_financing: -79.6,       // (-20 + -59.6) + revolver movement 0
+  cash_from_financing: -70.8,       // -20 + 0 + 0 + (-50.8) + 0
   fx_effect_on_cash: 0,
-  net_change_in_cash: 159.5,        // 353.5 + (-114.4) + (-79.6)
+  net_change_in_cash: 152.9,        // 320.5 + (-96.8) + (-70.8)
 
   // ---- Balance sheet (5.4) ----
-  // Plug: cashBeforePlug = 400 + 159.5 = 559.5 >= min_cash 400, revolver[P] = 0,
-  // so nothing is repaid and cash settles at 559.5.
-  cash_and_equivalents: 559.5,
+  // Plug: cashBeforePlug = 400 + 152.9 = 552.9 >= min_cash 400, revolver[P] = 0,
+  // so nothing is repaid and cash settles at 552.9.
+  cash_and_equivalents: 552.9,
   short_term_investments: 20,       // held flat
-  accounts_receivable: 143,         // 36.5/365 * 1430
-  inventory: 85.8,                  // 36.5/365 * 858
+  accounts_receivable: 121,         // 36.5/365 * 1210
+  inventory: 72.6,                  // 36.5/365 * 726
   other_current_assets: 24,         // held flat
-  total_current_assets: 832.3,      // 559.5 + 20 + 143 + 85.8 + 24
-  property_plant_equipment: 564.4,  // 500 + 114.4 - 50
+  total_current_assets: 790.5,      // 552.9 + 20 + 121 + 72.6 + 24
+  property_plant_equipment: 546.8,  // 500 + 96.8 - 50
   goodwill: 50,                     // held flat
   intangible_assets: 30,            // held flat
   other_noncurrent_assets: 26,      // held flat
-  total_assets: 1502.7,             // 832.3 + 564.4 + 50 + 30 + 26
-  accounts_payable: 128.7,          // 54.75/365 * 858
+  total_assets: 1443.3,             // 790.5 + 546.8 + 50 + 30 + 26
+  accounts_payable: 108.9,          // 54.75/365 * 726
   accrued_liabilities: 60,          // held flat
   deferred_revenue_current: 40,     // held flat
   short_term_debt: 50,              // held flat
   revolver: 0,                      // from the plug
   other_current_liabilities: 21,    // held flat
-  total_current_liabilities: 299.7, // 128.7 + 60 + 40 + 50 + 0 + 21
+  total_current_liabilities: 279.9, // 108.9 + 60 + 40 + 50 + 0 + 21
   long_term_debt: 130,              // max(150 - 20, 0)
   other_noncurrent_liabilities: 80, // held flat
-  total_liabilities: 509.7,         // 299.7 + 130 + 80
-  common_stock_apic: 428.6,         // 400 + 28.6
-  retained_earnings: 614.4,         // 376 + 298 + (-59.6)
+  total_liabilities: 489.9,         // 279.9 + 130 + 80
+  common_stock_apic: 424.2,         // 400 + 24.2
+  retained_earnings: 579.2,         // 376 + 254 + (-50.8)
   treasury_stock: -80,              // held flat
   accumulated_oci: 30,              // held flat
-  total_equity: 993,                // 428.6 + 614.4 + (-80) + 30
-  // 509.7 + 993 = 1502.7 = total assets.
+  total_equity: 953.4,              // 424.2 + 579.2 + (-80) + 30
+  // 489.9 + 953.4 = 1443.3 = total assets.
 };
 
 /**
@@ -282,66 +288,67 @@ export const EXPECTED_FY2025: Row = {
  */
 export const EXPECTED_FY2026: Row = {
   // ---- Income statement (5.1) ----
-  revenue: 1859,                    // 1430 * 1.30
-  cost_of_revenue: -1115.4,         // -(1859 * 0.60)
-  gross_profit: 743.6,              // 1859 + (-1115.4)
-  research_development: -92.95,     // -(1859 * 0.05)
-  selling_general_admin: -185.9,    // -(1859 * 0.10)
-  operating_expenses: -278.85,      // -92.95 + (-185.9)
-  operating_income: 464.75,         // 743.6 + (-278.85)
+  revenue: 1331,                    // 1210 * 1.10
+  cost_of_revenue: -798.6,          // -(1331 * 0.60)
+  gross_profit: 532.4,              // 1331 + (-798.6)
+  research_development: 66.55,      // 1331 * 0.05, printed positive
+  selling_general_admin: 133.1,     // 1331 * 0.10, printed positive
+  operating_expenses: 199.65,       // 66.55 + 133.1
+  operating_income: 332.75,         // 532.4 - 199.65
   interest_expense: -18,            // -((50 + 130 + 0) * 0.10), opening debt from FY2025
-  other_income_expense: 42.975,     // 15 + 559.5 * 0.05, opening cash from FY2025
-  pretax_income: 489.725,           // 464.75 + (-18) + 42.975
-  income_tax_expense: -97.945,      // -(489.725 * 0.20)
-  net_income: 391.78,               // 489.725 + (-97.945)
+  other_income_expense: 42.645,     // 15 + 552.9 * 0.05, opening cash from FY2025
+  pretax_income: 357.395,           // 332.75 + (-18) + 42.645
+  income_tax_expense: -71.479,      // -(357.395 * 0.20)
+  net_income: 285.916,              // 357.395 + (-71.479)
 
   // ---- Cash flow (5.2, 5.3) ----
-  cf_net_income: 391.78,
-  depreciation_amortisation: 56.44, // 564.4 * 0.10, opening PP&E from FY2025
-  stock_based_compensation: 37.18,  // 1859 * 0.02
-  change_in_working_capital: -30.03,// -((185.9-143) + (111.54-85.8) - (167.31-128.7))
-  cash_from_operations: 455.37,     // 391.78 + 56.44 + 37.18 + (-30.03)
-  capital_expenditures: -148.72,    // -(1859 * 0.08)
+  cf_net_income: 285.916,
+  depreciation_amortisation: 54.68, // 546.8 * 0.10, opening PP&E from FY2025
+  stock_based_compensation: 26.62,  // 1331 * 0.02
+  change_in_working_capital: -8.47, // -((133.1-121) + (79.86-72.6) - (119.79-108.9))
+  cash_from_operations: 358.746,    // 285.916 + 54.68 + 26.62 + (-8.47)
+  capital_expenditures: -106.48,    // -(1331 * 0.08)
   acquisitions: 0,
   other_investing: 0,
-  cash_from_investing: -148.72,
+  cash_from_investing: -106.48,
   debt_issued_repaid: -20,
+  revolver_movement: 0,
   equity_issued_repurchased: 0,
-  dividends_paid: -78.356,          // -(391.78 * 0.20)
+  dividends_paid: -57.1832,         // -(285.916 * 0.20)
   other_financing: 0,
-  cash_from_financing: -98.356,     // (-20 + -78.356) + revolver movement 0
+  cash_from_financing: -77.1832,    // -20 + 0 + 0 + (-57.1832) + 0
   fx_effect_on_cash: 0,
-  net_change_in_cash: 208.294,      // 455.37 + (-148.72) + (-98.356)
+  net_change_in_cash: 175.0828,     // 358.746 + (-106.48) + (-77.1832)
 
   // ---- Balance sheet (5.4) ----
-  // Plug: 559.5 + 208.294 = 767.794 >= 400, revolver[P] = 0, nothing repaid.
-  cash_and_equivalents: 767.794,
+  // Plug: 552.9 + 175.0828 = 727.9828 >= 400, revolver[P] = 0, nothing repaid.
+  cash_and_equivalents: 727.9828,
   short_term_investments: 20,
-  accounts_receivable: 185.9,       // 0.10 * 1859
-  inventory: 111.54,                // 0.10 * 1115.4
+  accounts_receivable: 133.1,       // 0.10 * 1331
+  inventory: 79.86,                 // 0.10 * 798.6
   other_current_assets: 24,
-  total_current_assets: 1109.234,   // 767.794 + 20 + 185.9 + 111.54 + 24
-  property_plant_equipment: 656.68, // 564.4 + 148.72 - 56.44
+  total_current_assets: 984.9428,   // 727.9828 + 20 + 133.1 + 79.86 + 24
+  property_plant_equipment: 598.6,  // 546.8 + 106.48 - 54.68
   goodwill: 50,
   intangible_assets: 30,
   other_noncurrent_assets: 26,
-  total_assets: 1871.914,           // 1109.234 + 656.68 + 50 + 30 + 26
-  accounts_payable: 167.31,         // 0.15 * 1115.4
+  total_assets: 1689.5428,          // 984.9428 + 598.6 + 50 + 30 + 26
+  accounts_payable: 119.79,         // 0.15 * 798.6
   accrued_liabilities: 60,
   deferred_revenue_current: 40,
   short_term_debt: 50,
   revolver: 0,
   other_current_liabilities: 21,
-  total_current_liabilities: 338.31,// 167.31 + 60 + 40 + 50 + 0 + 21
+  total_current_liabilities: 290.79,// 119.79 + 60 + 40 + 50 + 0 + 21
   long_term_debt: 110,              // max(130 - 20, 0)
   other_noncurrent_liabilities: 80,
-  total_liabilities: 528.31,        // 338.31 + 110 + 80
-  common_stock_apic: 465.78,        // 428.6 + 37.18
-  retained_earnings: 927.824,       // 614.4 + 391.78 + (-78.356)
+  total_liabilities: 480.79,        // 290.79 + 110 + 80
+  common_stock_apic: 450.82,        // 424.2 + 26.62
+  retained_earnings: 807.9328,      // 579.2 + 285.916 + (-57.1832)
   treasury_stock: -80,
   accumulated_oci: 30,
-  total_equity: 1343.604,           // 465.78 + 927.824 + (-80) + 30
-  // 528.31 + 1343.604 = 1871.914 = total assets.
+  total_equity: 1208.7528,          // 450.82 + 807.9328 + (-80) + 30
+  // 480.79 + 1208.7528 = 1689.5428 = total assets.
 };
 
 /** The two hand-worked forecast periods, keyed by period. */
@@ -398,6 +405,39 @@ export function fixtureForecastInput(options: EngineFixtureOptions = {}): Fixtur
     input.driverBasisAt = (key) => (defaulted.has(key) ? "default" : "derived");
   }
   return input;
+}
+
+// ---- The positive-cost fixture --------------------------------------------------
+//
+// The same company filing under the opposite convention: costs and outflows printed
+// positive, the way plenty of filings present them. The forecast must come out in ITS
+// convention, not the engine's internal one, or the history and forecast columns sit
+// side by side with opposite signs on the same line.
+
+/** The keys whose sign is a presentation choice rather than arithmetic. */
+export const SIGN_FLIPPED_KEYS = [
+  "cost_of_revenue", "interest_expense", "income_tax_expense", "capital_expenditures",
+  "dividends_paid", "research_development", "selling_general_admin",
+];
+
+function withPositiveCosts(row: Row): Row {
+  const out: Row = { ...row };
+  for (const key of SIGN_FLIPPED_KEYS) {
+    if (out[key] !== undefined) out[key] = Math.abs(out[key]);
+  }
+  return out;
+}
+
+/** The three historical years, printed with costs positive throughout. */
+export function positiveCostRows(): Record<string, Row> {
+  const base = historicalRows();
+  const rows: Record<string, Row> = {};
+  for (const [period, row] of Object.entries(base)) rows[period] = withPositiveCosts(row);
+  return rows;
+}
+
+export function positiveCostForecastInput(options: EngineFixtureOptions = {}): FixtureForecastInput {
+  return fixtureForecastInput({ ...options, rows: options.rows ?? positiveCostRows() });
 }
 
 // ---- The plug fixture -----------------------------------------------------------
@@ -470,12 +510,17 @@ export const EXPECTED_PLUGS = [
   { periodKey: "FY2028", cashBeforePlug: 1200, drawn: 0, repaid: 0, revolverBalance: 0 },
 ];
 
-/** Plugged cash and the financing line that must carry the revolver movement. */
-export const EXPECTED_PLUG_CASH: Record<string, { cash: number; cashFromFinancing: number; netChangeInCash: number }> = {
-  FY2025: { cash: 1000, cashFromFinancing: 150, netChangeInCash: 0 },
-  FY2026: { cash: 1000, cashFromFinancing: -50, netChangeInCash: 0 },
-  FY2027: { cash: 1100, cashFromFinancing: -100, netChangeInCash: 100 },
-  FY2028: { cash: 1200, cashFromFinancing: 0, netChangeInCash: 100 },
+/**
+ * Plugged cash and the financing lines that carry the revolver movement. Nothing else
+ * moves financing in this fixture, so `cash_from_financing` is exactly the movement.
+ */
+export const EXPECTED_PLUG_CASH: Record<string, {
+  cash: number; revolverMovement: number; cashFromFinancing: number; netChangeInCash: number;
+}> = {
+  FY2025: { cash: 1000, revolverMovement: 150, cashFromFinancing: 150, netChangeInCash: 0 },
+  FY2026: { cash: 1000, revolverMovement: -50, cashFromFinancing: -50, netChangeInCash: 0 },
+  FY2027: { cash: 1100, revolverMovement: -100, cashFromFinancing: -100, netChangeInCash: 100 },
+  FY2028: { cash: 1200, revolverMovement: 0, cashFromFinancing: 0, netChangeInCash: 100 },
 };
 
 export function plugForecastInput(overrides: { base?: Row; drivers?: Record<string, number> } = {}): FixtureForecastInput {

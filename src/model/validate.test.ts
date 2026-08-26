@@ -185,6 +185,22 @@ describe("validate", () => {
       .toBe(false);
   });
 
+  it("does not flag cash_from_financing when revolver_movement is absent, as it always is historically", () => {
+    // The same drill `revolver` went through: adding a forecast-only taxonomy item must
+    // change no validation finding over a historical workspace that cannot report it.
+    const data = {
+      FY2024: {
+        ...balanced.FY2024,
+        cash_from_financing: -50,
+        debt_issued_repaid: -20,
+        dividends_paid: -30,
+      },
+    };
+    const findings = validate({ periods: ["FY2024"], valueAt: lookupFrom(data) });
+    expect(findings.some((f) => f.code === "subtotal_mismatch" && f.keys.includes("cash_from_financing")))
+      .toBe(false);
+  });
+
   it("carries the six forecast finding codes alongside M1's own", () => {
     for (const code of [
       "forecast_not_annual",
