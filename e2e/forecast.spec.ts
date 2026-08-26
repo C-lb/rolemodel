@@ -150,15 +150,13 @@ test("runs a sensitivity grid", async ({ page }) => {
 
   // Defaults: row axis is revenue_growth, column axis is gross_margin (the first two
   // DRIVER_KEYS), output metric is revenue (the first line item), output period is
-  // FY2025. This fixture's derived gross_margin comes out to 1.6 (the seed fixture
-  // stores cost_of_revenue positive, where the seeding rule assumes it negative - a
-  // pre-existing fixture quirk, not something this test is asserting is correct).
-  // Row steps 0.2/0.25/0.3 and column steps 1.5/1.6/1.7 both put the scenario's own
+  // FY2025. This fixture's derived gross_margin is 0.4 (15,000 - |9,000|) / 15,000).
+  // Row steps 0.2/0.25/0.3 and column steps 0.3/0.4/0.5 both put the scenario's own
   // current driver values on the middle step of each axis, so cell [1][1] is the base case.
   await page.getByLabel("Sensitivity row minimum").fill("0.2");
   await page.getByLabel("Sensitivity row maximum").fill("0.3");
-  await page.getByLabel("Sensitivity column minimum").fill("1.5");
-  await page.getByLabel("Sensitivity column maximum").fill("1.7");
+  await page.getByLabel("Sensitivity column minimum").fill("0.3");
+  await page.getByLabel("Sensitivity column maximum").fill("0.5");
   await page.getByRole("button", { name: "Run sensitivity" }).click();
 
   // Revenue does not depend on gross_margin, so every cell in the 25%-growth row
