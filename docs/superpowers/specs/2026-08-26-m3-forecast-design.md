@@ -168,9 +168,20 @@ net_income             = pretax_income + income_tax_expense
 
 `openingDebt` is `short_term_debt[P] + long_term_debt[P] + revolver[P]`.
 
-Costs are written negative, matching the extraction convention in `src/extract/prompt.ts`
-that costs and outflows keep the sign the document uses, and matching the existing
-`MAGNITUDE_KEYS` handling in the ratio engine. The forecast must not invent a second sign
+The formulas above are written in the negative-cost convention, and the engine's internal
+arithmetic uses it throughout: `gross_profit = revenue + cost_of_revenue` only works that way.
+
+**But the stored sign is observed, not assumed.** `src/extract/prompt.ts` tells the model that
+costs and outflows keep the sign the document uses, so the convention genuinely varies by
+filing — `MAGNITUDE_KEYS` in the ratio engine exists to absorb exactly that. A forecast that
+hardcoded a negative sign would render `+6000, +6000, -7800` across the history/forecast seam
+for any filing that prints costs positive.
+
+So the engine applies a sign only as it writes each cell: `historicalSign(key)` reads the last
+historical non-zero value for that key and matches it, falling back to the convention above when
+history has none. Most recent non-zero wins; signs are never averaged across periods. This
+applies to `cost_of_revenue`, `interest_expense`, `income_tax_expense`, `capital_expenditures`,
+`dividends_paid`, `research_development` and `selling_general_admin`. The forecast must not invent a second sign
 convention, and a test asserts the forecast's sign for each of `cost_of_revenue`,
 `interest_expense`, `income_tax_expense`, `capital_expenditures` and `dividends_paid`
 matches the sign of the same key in the last historical period.
@@ -230,16 +241,23 @@ else:
     revolver = revolver[P] - repaid
     cash     = cashBeforePlug - repaid
 
-revolverMovement    = revolver - revolver[P]
-cash_from_financing = preplugFinancing + revolverMovement
+revolver_movement   = revolver - revolver[P]
+cash_from_financing = preplugFinancing + revolver_movement
 net_change_in_cash  = cash_from_operations + cash_from_investing + cash_from_financing
 fx_effect_on_cash   = 0
 ```
 
+`revolver_movement` is a real cash-flow line item in the taxonomy, sitting under
+`cash_from_financing` between `debt_issued_repaid` and `equity_issued_repurchased`, and flagged
+`absentMeansZero` exactly as `revolver` is. It was added during implementation: without it,
+`cash_from_financing` was the one subtotal in the model that did not equal the sum of its
+components, which contradicted §2's promise that the revolver is visible in the financing
+section and that nothing is hidden inside a subtotal.
+
 The revolver repays before cash accumulates above the floor, which is the behaviour a
 banker expects and the only ordering that keeps a surplus period from carrying idle debt.
-`cash[P] + net_change_in_cash` must equal the plugged cash within `closeEnough`; the engine
-asserts this and emits a finding if it ever fails, because a mismatch means the statement
+`cash[P] + net_change_in_cash` must equal the plugged cash; the engine asserts this and emits a
+finding if it ever fails, because a mismatch means the statement
 articulation is broken rather than the forecast being pessimistic.
 
 ### 5.4 Balance sheet
@@ -272,7 +290,19 @@ cancelling against the PP&E roll-forward and the working-capital delta cancellin
 the receivable, inventory and payable movements.
 
 That is not a comment, it is a test. For every forecast period the engine checks
-`total_assets` against `total_liabilities + total_equity` under `closeEnough`. The test
+`total_assets` against `total_liabilities + total_equity`.
+
+**Not under `closeEnough`.** This is an algebraic identity, not two independently rounded figures
+being compared, so the only residual is floating-point noise. `closeEnough` allows
+`max(1, 0.005 x scale)`, which is roughly 8.6 on a 1,500-unit balance sheet — wide enough that
+the guard's sensitivity is set by the size of the test fixture rather than by the engine. During
+implementation a deliberate mutation that dropped the working-capital delta from cash from
+operations passed at one fixture size and failed at another, which is the symptom.
+
+The invariant uses its own comparator, `max(1e-6, scale x 1e-9)`, and so do the hand-computed
+fixture literals, which are exact and were being checked at half a percent. The precedent is M2,
+which introduced `ratiosAgree` rather than reuse `closeEnough` for the DuPont check for the same
+class of reason. The test
 suite must include a mutation check in the spirit of the project's existing guard tests: a
 deliberately broken engine, for instance one that drops the working-capital delta from cash
 from operations, must make the invariant test fail. A guard that has never been seen to go
