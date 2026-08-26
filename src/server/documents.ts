@@ -169,6 +169,9 @@ export async function loadWorkspace(
     runId: string | null;
     unmapped: UnmappedFactRow[];
     customRatios: CustomRatioInput[];
+    /** The two validation inputs `buildWorkspace` took, so a rebuild can pass the same ones. */
+    scaleFactors: number[];
+    conflicts: { canonicalKey: string; periodKey: string }[];
     averagingMode: AveragingMode;
   }
 > {
@@ -210,6 +213,15 @@ export async function loadWorkspace(
   // buildWorkspace's own treatment of low_confidence: a value the user typed is not in question.
   const overriddenCells = new Set(overrideRows.map((o) => `${o.canonicalKey}::${o.periodKey}`));
 
+  // Named rather than inlined so a caller that rebuilds this workspace with a forecast
+  // layer (`app/w/[id]/page.tsx`) can pass the SAME two inputs. They feed M1's
+  // `scale_inconsistent` and `merge_conflict` findings; a rebuild that dropped them
+  // called itself an identity rebuild and was not one.
+  const scaleFactors = mapped.map((f) => f.provenance.scaleFactor);
+  const conflicts = (activeRun?.conflicts ?? [])
+    .filter((c) => !overriddenCells.has(`${c.canonicalKey}::${c.periodKey}`))
+    .map((c) => ({ canonicalKey: c.canonicalKey, periodKey: c.periodKey }));
+
   const view = buildWorkspace({
     periods,
     facts: mapped.map((f) => ({
@@ -219,10 +231,8 @@ export async function loadWorkspace(
     overrides: overrideRows.map((o) => ({
       canonicalKey: o.canonicalKey, periodKey: o.periodKey, value: o.value,
     })),
-    scaleFactors: mapped.map((f) => f.provenance.scaleFactor),
-    conflicts: (activeRun?.conflicts ?? [])
-      .filter((c) => !overriddenCells.has(`${c.canonicalKey}::${c.periodKey}`))
-      .map((c) => ({ canonicalKey: c.canonicalKey, periodKey: c.periodKey })),
+    scaleFactors,
+    conflicts,
   });
 
   const customRatios: CustomRatioInput[] = deps.db
@@ -239,6 +249,8 @@ export async function loadWorkspace(
     runId: workspace.activeRunId,
     unmapped,
     customRatios,
+    scaleFactors,
+    conflicts,
     averagingMode: workspace.averagingMode === "ending" ? "ending" : "average",
   };
 }

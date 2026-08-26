@@ -69,7 +69,12 @@ export function formatDriverValue(value: number | undefined, unit: DriverUnit): 
     case "percent":
       return `${(value * 100).toFixed(2)}%`;
     case "days":
-      return `${Math.round(value)}`;
+      // NOT rounded. A seeded `dso` of 36.5 rendered as "37" here while the engine ran
+      // it at 36.5 and the editor opened it at 36.5, so the driver grid showed a number
+      // the forecast did not use and an untouched cell appeared to change on edit. The
+      // 12-significant-digit pass is the same noise trim `driverEditValue` applies, so
+      // display and edit agree exactly.
+      return String(Number(value.toPrecision(12)));
     case "currency":
       return formatMoney(value);
   }

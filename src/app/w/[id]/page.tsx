@@ -145,6 +145,11 @@ export default async function WorkspacePage({ params }: { params: Promise<{ id: 
     ? buildWorkspace({
         periods: ws.periods,
         ...factsAndOverridesFrom(ws),
+        // Carried through so this really is `ws` plus a forecast layer. Neither input
+        // changes a ratio, but both feed M1's findings, and a rebuild documented as an
+        // identity rebuild has to be one.
+        scaleFactors: ws.scaleFactors,
+        conflicts: ws.conflicts,
         forecast: { periods: scenarioContext.forecastPeriods, valueAt: forecastResult.valueAt },
       })
     : ws;

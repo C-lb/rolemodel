@@ -13,6 +13,12 @@ export default defineConfig({
   globalSetup: "./e2e/global-setup.ts",
   timeout: 30_000,
   expect: { timeout: 10_000 },
+  // NOT a preference, a constraint the specs depend on. `e2e/forecast.spec.ts` walks
+  // the horizon control, which mutates shared workspace state (the driver rows for the
+  // periods beyond the new horizon) and restores it afterwards, and the forecast specs
+  // read fixtures the earlier ones set up. A second worker would interleave with that
+  // window and fail intermittently on figures that are correct. Raising this means
+  // making the specs independent first.
   fullyParallel: false,
   workers: 1,
   reporter: [["list"]],

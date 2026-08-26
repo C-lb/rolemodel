@@ -62,9 +62,14 @@ describe("formatDriverValue", () => {
     expect(formatDriverValue(-0.02, "percent")).toBe("-2.00%");
   });
 
-  it("renders a days driver as a whole day count with no unit suffix baked into the stored value", () => {
+  it("renders a days driver exactly as stored, never rounded to a whole day", () => {
     expect(formatDriverValue(45, "days")).toBe("45");
-    expect(formatDriverValue(45.6, "days")).toBe("46");
+    // NOT "46". A seeded dso of 36.5 displayed as 37 while the engine ran it at 36.5,
+    // so the driver grid showed a number the forecast did not use. Display and edit
+    // must agree, or an untouched cell appears to change the moment it is opened.
+    expect(formatDriverValue(45.6, "days")).toBe("45.6");
+    expect(formatDriverValue(36.5, "days")).toBe("36.5");
+    expect(formatDriverValue(36.5, "days")).toBe(driverEditValue(36.5, "days"));
   });
 
   it("renders a currency driver exactly as formatMoney does", () => {
