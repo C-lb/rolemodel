@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, real, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, uniqueIndex, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 export interface Provenance {
   page: number | null;
@@ -60,6 +60,11 @@ export const workspaces = sqliteTable("workspaces", {
   activeRunId: text("active_run_id").references(() => extractionRuns.id, { onDelete: "set null" }),
   /** 'average' | 'ending'. Balance-sheet denominators in flow-over-stock ratios. */
   averagingMode: text("averaging_mode").notNull().default("average"),
+  /** Number of annual forecast periods, 1-5. */
+  forecastHorizon: integer("forecast_horizon").notNull().default(5),
+  /** The scenario whose drivers currently drive the forecast statements. Cleared, never
+   *  left dangling, when that scenario is deleted — see `scenarios.deleteScenario`. */
+  activeScenarioId: text("active_scenario_id").references((): AnySQLiteColumn => scenarios.id, { onDelete: "set null" }),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -109,4 +114,46 @@ export const overrides = sqliteTable("overrides", {
   updatedAt: integer("updated_at").notNull(),
 }, (t) => ({
   byWorkspace: index("overrides_by_workspace").on(t.workspaceId),
+}));
+
+/**
+ * One scenario is `isBase`. Base, Bull and Bear are seeded together the moment the
+ * first scenario for a workspace is created (spec §4.2, §9) — there is no workspace
+ * with only some of the trio, and no scenario after that first batch is forced to be
+ * one of those three names.
+ */
+export const scenarios = sqliteTable("scenarios", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  isBase: integer("is_base").notNull().default(0),
+  ordinal: integer("ordinal").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (t) => ({
+  byWorkspace: index("scenarios_by_workspace").on(t.workspaceId),
+  uniqueName: uniqueIndex("scenarios_unique_name").on(t.workspaceId, t.name),
+}));
+
+/**
+ * One row per (scenario, driver, forecast period). Every driver exists for every
+ * forecast period from the moment a scenario is created (drivers.ts) — there is no
+ * "unset means inherit" rule, so a missing row here is a bug, not a state to handle.
+ *
+ * `basis` is `"derived" | "default"` when seeded (see `DriverBasis` in
+ * `model/forecast/seed.ts`), and `"user"` once `saveDriver` or `fillRight` has touched
+ * the cell — a provenance the seeding layer has no reason to know about, so it is not
+ * added to that narrower type.
+ */
+export const drivers = sqliteTable("drivers", {
+  id: text("id").primaryKey(),
+  scenarioId: text("scenario_id").notNull().references(() => scenarios.id, { onDelete: "cascade" }),
+  key: text("key").notNull(),
+  periodKey: text("period_key").notNull(),
+  value: real("value").notNull(),
+  basis: text("basis").notNull(),
+  note: text("note").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (t) => ({
+  byScenario: index("drivers_by_scenario").on(t.scenarioId),
+  uniqueCell: uniqueIndex("drivers_unique_cell").on(t.scenarioId, t.key, t.periodKey),
 }));

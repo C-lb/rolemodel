@@ -51,6 +51,20 @@ const DDL = [
      created_at INTEGER NOT NULL)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS interpretations_key ON interpretations(workspace_id, ratio_key, input_hash)`,
   `CREATE INDEX IF NOT EXISTS interpretations_by_workspace ON interpretations(workspace_id)`,
+  `CREATE TABLE IF NOT EXISTS scenarios (
+     id TEXT PRIMARY KEY,
+     workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+     name TEXT NOT NULL, is_base INTEGER NOT NULL DEFAULT 0, ordinal INTEGER NOT NULL,
+     created_at INTEGER NOT NULL)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS scenarios_unique_name ON scenarios(workspace_id, name)`,
+  `CREATE INDEX IF NOT EXISTS scenarios_by_workspace ON scenarios(workspace_id)`,
+  `CREATE TABLE IF NOT EXISTS drivers (
+     id TEXT PRIMARY KEY,
+     scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
+     key TEXT NOT NULL, period_key TEXT NOT NULL, value REAL NOT NULL,
+     basis TEXT NOT NULL, note TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS drivers_unique_cell ON drivers(scenario_id, key, period_key)`,
+  `CREATE INDEX IF NOT EXISTS drivers_by_scenario ON drivers(scenario_id)`,
 ];
 
 /**
@@ -60,6 +74,8 @@ const DDL = [
  */
 const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: "workspaces", column: "averaging_mode", definition: "TEXT NOT NULL DEFAULT 'average'" },
+  { table: "workspaces", column: "forecast_horizon", definition: "INTEGER NOT NULL DEFAULT 5" },
+  { table: "workspaces", column: "active_scenario_id", definition: "TEXT REFERENCES scenarios(id) ON DELETE SET NULL" },
 ];
 
 export function migrate(db: Db): void {
