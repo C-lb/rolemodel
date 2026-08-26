@@ -96,7 +96,16 @@ export function WorkspaceScreen({
   const [dragging, setDragging] = useState(false);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [saveFailure, setSaveFailure] = useState<SaveFailure | null>(null);
-  const [pending, startTransition] = useTransition();
+  // Whether the save/reset/undo path currently has a request in flight. This is
+  // its own state rather than useTransition's `isPending`, because `isPending`
+  // only flips back once the whole async transition callback has settled - one
+  // render later than the setSaveFailure update that reports the same outcome.
+  // Gating the "Try again" button on `isPending` therefore has a real render in
+  // between where the failure banner is up but the button is not: a save that
+  // failed would briefly look like it could not be retried. Flipping this flag
+  // in the same synchronous continuation as setSaveFailure keeps both in one commit.
+  const [saving, setSaving] = useState(false);
+  const [, startTransition] = useTransition();
   const router = useRouter();
   const toast = useToast();
 
@@ -126,16 +135,21 @@ export function WorkspaceScreen({
    * a save that did not land can never read as one that did.
    */
   function perform(action: () => Promise<SaveResult>, onSaved: () => void) {
-    const run = () => startTransition(async () => {
-      const result = await action();
-      if (!result.ok) {
-        setSaveFailure({ message: result.message, remediation: result.remediation, retry: run });
-        return;
-      }
-      setSaveFailure(null);
-      router.refresh();
-      onSaved();
-    });
+    const run = () => {
+      setSaving(true);
+      startTransition(async () => {
+        const result = await action();
+        if (!result.ok) {
+          setSaveFailure({ message: result.message, remediation: result.remediation, retry: run });
+          setSaving(false);
+          return;
+        }
+        setSaveFailure(null);
+        setSaving(false);
+        router.refresh();
+        onSaved();
+      });
+    };
 
     run();
   }
@@ -344,7 +358,7 @@ export function WorkspaceScreen({
             actionLabel="Try again"
             // The control goes away while a retry is in flight: Banner renders no
             // button without a handler, which is how it says "not now" here.
-            onAction={pending ? undefined : saveFailure.retry}
+            onAction={saving ? undefined : saveFailure.retry}
           />
         )}
 
