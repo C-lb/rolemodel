@@ -27,6 +27,7 @@ const DDL = [
   `CREATE TABLE IF NOT EXISTS workspaces (
      id TEXT PRIMARY KEY, name TEXT NOT NULL,
      active_run_id TEXT REFERENCES extraction_runs(id) ON DELETE SET NULL,
+     averaging_mode TEXT NOT NULL DEFAULT 'average',
      created_at INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS overrides (
      id TEXT PRIMARY KEY,
@@ -34,11 +35,42 @@ const DDL = [
      canonical_key TEXT NOT NULL, period_key TEXT NOT NULL, value REAL NOT NULL,
      note TEXT, updated_at INTEGER NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS overrides_by_workspace ON overrides(workspace_id)`,
+  `CREATE TABLE IF NOT EXISTS custom_ratios (
+     id TEXT PRIMARY KEY,
+     workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+     key TEXT NOT NULL, label TEXT NOT NULL, expression TEXT NOT NULL, note TEXT,
+     created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS custom_ratios_key ON custom_ratios(workspace_id, key)`,
+  `CREATE INDEX IF NOT EXISTS custom_ratios_by_workspace ON custom_ratios(workspace_id)`,
+  `CREATE TABLE IF NOT EXISTS interpretations (
+     id TEXT PRIMARY KEY,
+     workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+     ratio_key TEXT NOT NULL, input_hash TEXT NOT NULL, text TEXT NOT NULL,
+     declined INTEGER NOT NULL, reason TEXT, model_id TEXT NOT NULL,
+     prompt_version INTEGER NOT NULL, tokens_in INTEGER, tokens_out INTEGER,
+     created_at INTEGER NOT NULL)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS interpretations_key ON interpretations(workspace_id, ratio_key, input_hash)`,
+  `CREATE INDEX IF NOT EXISTS interpretations_by_workspace ON interpretations(workspace_id)`,
+];
+
+/**
+ * Columns added to tables that already exist in the field. `CREATE TABLE IF NOT EXISTS`
+ * is a no-op against a database created by an earlier version, so a new column has to be
+ * added explicitly, and only when it is absent: SQLite has no `ADD COLUMN IF NOT EXISTS`.
+ */
+const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
+  { table: "workspaces", column: "averaging_mode", definition: "TEXT NOT NULL DEFAULT 'average'" },
 ];
 
 export function migrate(db: Db): void {
   db.run(sql`PRAGMA foreign_keys = ON`);
   for (const statement of DDL) db.run(sql.raw(statement));
+
+  for (const { table, column, definition } of ADDED_COLUMNS) {
+    const existing = db.all<{ name: string }>(sql.raw(`PRAGMA table_info(${table})`));
+    if (existing.some((c) => c.name === column)) continue;
+    db.run(sql.raw(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`));
+  }
 }
 
 let cached: Db | null = null;
