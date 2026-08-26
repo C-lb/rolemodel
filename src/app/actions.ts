@@ -58,7 +58,7 @@ export async function remapLineItem(
   workspaceId: string, factId: string, toCanonicalKey: string,
 ): Promise<ActionResult<null>> {
   try {
-    await remapFact(realDeps(), factId, toCanonicalKey);
+    await remapFact(realDeps(), workspaceId, factId, toCanonicalKey);
   } catch (error) {
     return {
       ok: false, code: "remap_failed", message: (error as Error).message,

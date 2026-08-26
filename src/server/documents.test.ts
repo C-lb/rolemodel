@@ -182,11 +182,33 @@ describe("loadWorkspace unmapped figures", () => {
     if (!created.ok) throw new Error("setup failed");
 
     const before = await loadWorkspace(d, created.data.workspaceId);
-    await remapFact(d, before.unmapped[0].id, "inventory");
+    await remapFact(d, created.data.workspaceId, before.unmapped[0].id, "inventory");
 
     const after = await loadWorkspace(d, created.data.workspaceId);
     expect(after.unmapped).toHaveLength(0);
     expect(after.cell("inventory", "FY2024").value).toBe(50);
+  });
+});
+
+describe("remapping against a workspace", () => {
+  it("refuses a line the user has already typed a value into, rather than hiding the figure behind it", async () => {
+    const d = deps(vi.fn().mockResolvedValue(goodResult));
+    const created = await ingestAndExtract(d, xlsxName, await tinyWorkbook());
+    if (!created.ok) throw new Error("setup failed");
+    const wsId = created.data.workspaceId;
+
+    // The user fills in a line the extractor left blank, then tries to move a
+    // stray figure onto it. An override wins over a fact in the view, so a move
+    // that succeeded here would put the figure somewhere nobody can see it.
+    await setOverride(d, wsId, "goodwill", "FY2024", 400);
+    const before = await loadWorkspace(d, wsId);
+
+    await expect(remapFact(d, wsId, before.unmapped[0].id, "goodwill"))
+      .rejects.toThrow(/already has a value you entered for FY2024/);
+
+    const after = await loadWorkspace(d, wsId);
+    expect(after.unmapped).toHaveLength(1);
+    expect(after.cell("goodwill", "FY2024").value).toBe(400);
   });
 });
 

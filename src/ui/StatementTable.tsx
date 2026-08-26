@@ -21,9 +21,24 @@ interface Props {
   revealEmptyRows?: boolean;
 }
 
+const ROW_TARGET_PREFIX = "row:";
+
+/**
+ * The line item a chip was dropped on, or null if it was not dropped on one.
+ * Drop target ids are namespaced, so this is what stops a drop onto anything
+ * else on the page from being read as a line item and sent to the server.
+ */
+export function droppedRowKey(overId: string | number | undefined): string | null {
+  if (overId === undefined) return null;
+  const id = String(overId);
+  if (!id.startsWith(ROW_TARGET_PREFIX)) return null;
+  const key = id.slice(ROW_TARGET_PREFIX.length);
+  return key === "" ? null : key;
+}
+
 /** The label cell doubles as the drop target for an unmapped figure. */
 function LabelCell({ rowKey, children }: { rowKey: string; children: ReactNode }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `row:${rowKey}` });
+  const { setNodeRef, isOver } = useDroppable({ id: `${ROW_TARGET_PREFIX}${rowKey}` });
   return (
     <th
       ref={setNodeRef}

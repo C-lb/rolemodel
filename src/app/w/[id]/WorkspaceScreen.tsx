@@ -8,7 +8,7 @@ import {
 } from "@dnd-kit/core";
 import type { StatementRow, Cell } from "@/model/workspace";
 import type { Finding } from "@/model/validate";
-import { StatementTable } from "@/ui/StatementTable";
+import { StatementTable, droppedRowKey } from "@/ui/StatementTable";
 import { RemapDrawer, type UnmappedFact } from "@/ui/RemapDrawer";
 import { ProvenancePanel } from "@/ui/ProvenancePanel";
 import { Banner } from "@/ui/Banner";
@@ -54,6 +54,7 @@ const cellId = (key: string, period: string) => `${key}::${period}`;
  * they carry are what tells them apart. Dismissing one must not hide its siblings.
  */
 const findingId = (f: Finding) => `${f.code}:${f.periodKey}:${f.keys.join(",")}`;
+
 
 export function WorkspaceScreen({ workspaceId, documentName, periods, findings, statements, unmapped }: Props) {
   const [inspected, setInspected] = useState<Cell | null>(null);
@@ -158,9 +159,9 @@ export function WorkspaceScreen({ workspaceId, documentName, periods, findings, 
 
   function handleDragEnd(event: DragEndEvent) {
     setDragging(false);
-    const targetId = String(event.over?.id ?? "");
-    if (!targetId.startsWith("row:")) return;
-    remap(String(event.active.id), targetId.slice("row:".length));
+    const toKey = droppedRowKey(event.over?.id);
+    if (toKey === null) return;
+    remap(String(event.active.id), toKey);
   }
 
   const visible = findings.filter((f) => !dismissed.has(findingId(f)));

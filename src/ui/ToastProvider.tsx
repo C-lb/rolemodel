@@ -44,13 +44,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={t.id}
             role="status"
-            className="pointer-events-auto flex items-center gap-3 rounded-xl border border-white/10 bg-neutral-900 px-3.5 py-2.5 text-sm text-neutral-100 shadow-[0_14px_34px_-18px_rgba(0,0,0,0.65)]"
+            className="pointer-events-auto flex max-w-[min(28rem,calc(100vw-2rem))] items-start gap-3 rounded-xl border border-white/10 bg-neutral-900 px-3.5 py-2.5 text-sm text-neutral-100 shadow-[0_14px_34px_-18px_rgba(0,0,0,0.65)]"
           >
-            <span className="whitespace-nowrap">{t.message}</span>
+            {/* Wraps: a refusal message is a full sentence, and on a narrow
+                viewport one line of it would run off the left edge. */}
+            <span className="min-w-0 leading-relaxed">{t.message}</span>
             {t.undo && (
               <button
                 type="button"
-                className="whitespace-nowrap rounded-[10px] px-1.5 py-0.5 text-xs font-medium text-neutral-100 underline decoration-neutral-500 underline-offset-2 transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-300"
+                className="mt-px shrink-0 whitespace-nowrap rounded-[10px] px-1.5 py-0.5 text-xs font-medium text-neutral-100 underline decoration-neutral-500 underline-offset-2 transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-300"
                 onClick={() => {
                   t.undo?.();
                   dismiss(t.id);

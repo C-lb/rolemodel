@@ -45,6 +45,7 @@ function Chip({ fact, onRemap }: ChipProps) {
   const style = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
     : undefined;
+  const printed = printedAs(fact);
 
   return (
     <li
@@ -72,7 +73,7 @@ function Chip({ fact, onRemap }: ChipProps) {
         <p className="truncate leading-snug text-amber-50">{fact.label}</p>
         <p className="mt-0.5 truncate text-xs leading-relaxed text-amber-100/60">
           {fact.periodKey} · {formatMoney(fact.value)}
-          {printedAs(fact) ? ` (${printedAs(fact)} as printed)` : ""}
+          {printed ? ` (${printed} as printed)` : ""}
           {fact.page !== null ? ` · page ${fact.page}` : ""}
         </p>
       </div>
