@@ -20,6 +20,8 @@ const TAX_RATE_MIN = 0;
 const TAX_RATE_MAX = 0.5;
 const INTEREST_RATE_DEBT_MIN = 0;
 const INTEREST_RATE_DEBT_MAX = 0.25;
+const DIVIDEND_PAYOUT_MIN = 0;
+const DIVIDEND_PAYOUT_MAX = 1;
 
 type Seeded = Omit<SeededDriver, "key">;
 type DeriveFn = (input: SeedInput) => Seeded;
@@ -133,7 +135,12 @@ function daysOf(key: string, balanceKey: string, flowKey: string, flowSign: 1 | 
     const rawFlow = input.valueAt(flowKey, latest);
     if (rawFlow === undefined) return fallback(key, `${flowKey} is missing at ${latest}.`);
     const flow = flowSign * rawFlow;
-    if (flow === 0) return fallback(key, `${flowKey} is zero at ${latest}, so a day count cannot be computed.`);
+    // Reject non-positive, not just zero: a statement that stored `flowKey` with the
+    // wrong sign for this convention would otherwise silently produce a negative day
+    // count rather than falling back.
+    if (flow <= 0) {
+      return fallback(key, `${flowKey} at ${latest} is zero or has an unexpected sign, so a day count cannot be computed.`);
+    }
     const value = (balance / flow) * DAYS_IN_YEAR;
     if (!Number.isFinite(value)) return fallback(key, "The computed day count is not a finite number.");
     const flowExpr = flowSign === -1 ? `-${flowKey}` : flowKey;
@@ -223,6 +230,49 @@ function deriveMinCash(input: SeedInput): Seeded {
   return derived(cash, `Set to the cash_and_equivalents balance at ${latest}, so period one draws no revolver.`);
 }
 
+/**
+ * "Held flat" means flat at the last actual, not flat at zero: this is a real
+ * income-statement line, so the seed is its value in the most recent historical period.
+ */
+function deriveOtherIncomeExpense(input: SeedInput): Seeded {
+  const latest = latestPeriod(input);
+  if (latest === undefined) return fallback("other_income_expense", "No historical period is available.");
+  const value = input.valueAt("other_income_expense", latest);
+  if (value === undefined) {
+    return fallback("other_income_expense", `other_income_expense is missing at ${latest}.`);
+  }
+  return derived(value, `Held flat at the other_income_expense value from ${latest}.`);
+}
+
+function deriveDividendPayout(input: SeedInput): Seeded {
+  const latest = latestPeriod(input);
+  if (latest === undefined) return fallback("dividend_payout", "No historical period is available.");
+  const netIncome = input.valueAt("net_income", latest);
+  if (netIncome === undefined || netIncome <= 0) {
+    return fallback(
+      "dividend_payout",
+      `net_income at ${latest} is missing or not positive, so a payout ratio cannot be computed.`,
+    );
+  }
+  const dividendsPaid = input.valueAt("dividends_paid", latest);
+  if (dividendsPaid === undefined) {
+    return fallback("dividend_payout", `dividends_paid is missing at ${latest}.`);
+  }
+  // dividends_paid is stored negative, so its magnitude is what's divided by net income.
+  const magnitude = -dividendsPaid;
+  if (magnitude <= 0) {
+    return fallback("dividend_payout", `No dividends were paid at ${latest}.`);
+  }
+  const value = magnitude / netIncome;
+  if (!Number.isFinite(value) || value < DIVIDEND_PAYOUT_MIN || value > DIVIDEND_PAYOUT_MAX) {
+    return fallback(
+      "dividend_payout",
+      `The computed payout ratio at ${latest} falls outside the plausible ${DIVIDEND_PAYOUT_MIN}–${DIVIDEND_PAYOUT_MAX} range.`,
+    );
+  }
+  return derived(value, `Computed as -dividends_paid / net_income at ${latest}, dividends_paid negative.`);
+}
+
 /** No line item in the taxonomy lets this driver be read from a historical statement. */
 function alwaysDefault(key: string, why: string): DeriveFn {
   return () => fallback(key, why);
@@ -234,28 +284,22 @@ const DERIVERS: Readonly<Record<string, DeriveFn>> = {
   rd_pct_revenue: percentOfRevenue("rd_pct_revenue", "research_development"),
   sga_pct_revenue: percentOfRevenue("sga_pct_revenue", "selling_general_admin"),
   sbc_pct_revenue: percentOfRevenue("sbc_pct_revenue", "stock_based_compensation"),
-  other_income_expense: alwaysDefault(
-    "other_income_expense",
-    "Held flat at the documented default; there is no rule for reading a starting value for this line from history.",
-  ),
+  other_income_expense: deriveOtherIncomeExpense,
   dso: daysOf("dso", "accounts_receivable", "revenue", 1),
   dio: daysOf("dio", "inventory", "cost_of_revenue", -1),
   dpo: daysOf("dpo", "accounts_payable", "cost_of_revenue", -1),
   capex_pct_revenue: deriveCapexPctRevenue,
   depreciation_pct_ppe: deriveDepreciationPctPpe,
   tax_rate: deriveTaxRate,
-  dividend_payout: alwaysDefault(
-    "dividend_payout",
-    "Held at the documented default; there is no rule for reading a starting payout ratio from history.",
-  ),
+  dividend_payout: deriveDividendPayout,
   interest_rate_debt: deriveInterestRateDebt,
   interest_rate_cash: alwaysDefault(
     "interest_rate_cash",
-    "Held at the documented default; the taxonomy has no interest-income line to derive this rate from.",
+    "Held at the documented default; interest income is embedded inside other_income_expense and is not reported as a separate line, so there is no honest way to derive this rate from history.",
   ),
   debt_repayment: alwaysDefault(
     "debt_repayment",
-    "Held at the documented default; a repayment schedule is a policy choice, not something history determines.",
+    "Held at the documented default; debt_issued_repaid is a net figure, and splitting it into issuance versus repayment would be guesswork.",
   ),
   min_cash: deriveMinCash,
 };

@@ -6,11 +6,12 @@ import type { SeedInput } from "./seed";
  * in `seed.test.ts` are literals from that arithmetic, never computed with the code
  * under test.
  *
- * `cost_of_revenue`, `interest_expense`, `income_tax_expense` and `capital_expenditures`
- * are stored negative on purpose, matching what a filing prints — the sign-normalisation
- * cases a fixture that stored them positive would never exercise. `revolver` is omitted
- * entirely: it is `absentMeansZero` in the taxonomy, and no historical document ever
- * reports one.
+ * `cost_of_revenue`, `interest_expense`, `income_tax_expense`, `capital_expenditures` and
+ * `dividends_paid` are stored negative on purpose, matching what a filing prints — the
+ * sign-normalisation cases a fixture that stored them positive would never exercise.
+ * `revolver` is omitted entirely: it is `absentMeansZero` in the taxonomy, and no
+ * historical document ever reports one. `debt_issued_repaid` is included for Task 4's
+ * engine tests; nothing in this task derives a driver from it.
  */
 export type Row = Record<string, number>;
 
@@ -32,6 +33,10 @@ export const FY2022: Row = {
   long_term_debt: 120,
   depreciation_amortisation: 41,
   capital_expenditures: -72,
+  other_income_expense: 10,
+  net_income: 150,
+  dividends_paid: -30,
+  debt_issued_repaid: -15,
 };
 
 export const FY2023: Row = {
@@ -52,6 +57,10 @@ export const FY2023: Row = {
   long_term_debt: 135,
   depreciation_amortisation: 45,
   capital_expenditures: -80,
+  other_income_expense: 12,
+  net_income: 180,
+  dividends_paid: -36,
+  debt_issued_repaid: -20,
 };
 
 /**
@@ -76,6 +85,10 @@ export const FY2024: Row = {
   long_term_debt: 150,
   depreciation_amortisation: 50,
   capital_expenditures: -88,
+  other_income_expense: 15,
+  net_income: 210,
+  dividends_paid: -42,
+  debt_issued_repaid: -25,
 };
 
 export interface FixtureOptions {

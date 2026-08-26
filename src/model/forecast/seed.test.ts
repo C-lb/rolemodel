@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { DRIVER_KEYS, DRIVER_DEFAULTS } from "./drivers";
 import { deriveDrivers, scenarioSeed, type SeededDriver } from "./seed";
 import { fixtureSeedInput, withOverrides, withGapBeforeLatest } from "./fixtures";
+import { closeEnough } from "../tolerance";
 
 /**
  * Rate and day-count tolerances, not money: nothing here goes through `closeEnough`
@@ -24,9 +25,11 @@ function byKey(drivers: SeededDriver[], key: string): SeededDriver {
   return found;
 }
 
-// Drivers spec 4.1 names as constants: no seeding formula reaches them, so they are
-// always `basis: "default"`, even on the clean fixture.
-const ALWAYS_DEFAULT = ["other_income_expense", "dividend_payout", "interest_rate_cash", "debt_repayment"];
+// The only two drivers spec 4.1 gives no honest derivation for: interest income is
+// embedded inside other_income_expense rather than reported separately, and
+// debt_issued_repaid is a net figure a repayment schedule can't be split out of. Every
+// other driver, including other_income_expense and dividend_payout, derives.
+const ALWAYS_DEFAULT = ["interest_rate_cash", "debt_repayment"];
 
 describe("deriveDrivers — clean fixture", () => {
   const drivers = deriveDrivers(fixtureSeedInput());
@@ -96,14 +99,26 @@ describe("deriveDrivers — clean fixture", () => {
   });
 
   it("seeds min_cash from the last historical cash balance, 400", () => {
+    // min_cash is a currency driver, so it goes through closeEnough — not the
+    // rate/day-count tolerance above, which would be too tight for a monetary figure.
     const d = byKey(drivers, "min_cash");
     expect(d.basis).toBe("derived");
-    closeRate(d.value, 400, 1e-6);
+    expect(closeEnough(d.value, 400)).toBe(true);
   });
 
-  it("always defaults the four drivers spec 4.1 gives no formula for", () => {
-    expect(byKey(drivers, "other_income_expense").value).toBe(0);
-    expect(byKey(drivers, "dividend_payout").value).toBe(0);
+  it("holds other_income_expense flat at the latest historical value, 15", () => {
+    const d = byKey(drivers, "other_income_expense");
+    expect(d.basis).toBe("derived");
+    expect(closeEnough(d.value, 15)).toBe(true);
+  });
+
+  it("computes dividend_payout as 42 / 210 = 0.20 (dividends_paid is -42)", () => {
+    const d = byKey(drivers, "dividend_payout");
+    expect(d.basis).toBe("derived");
+    closeRate(d.value, 0.2);
+  });
+
+  it("always defaults the two drivers spec 4.1 gives no honest derivation for", () => {
     expect(byKey(drivers, "interest_rate_cash").value).toBe(0.02);
     expect(byKey(drivers, "debt_repayment").value).toBe(0);
   });
@@ -192,6 +207,37 @@ describe("deriveDrivers — degenerate fixtures", () => {
     expect(d.basis).toBe("default");
     expect(d.value).toBe(DRIVER_DEFAULTS.revenue_growth);
     expect(d.note.length).toBeGreaterThan(0);
+  });
+
+  it("falls back on dividend_payout when net_income is not positive", () => {
+    const input = fixtureSeedInput(withOverrides([{ period: "FY2024", key: "net_income", value: -10 }]));
+    const drivers = deriveDrivers(input);
+    const d = byKey(drivers, "dividend_payout");
+    expect(d.basis).toBe("default");
+    expect(d.value).toBe(DRIVER_DEFAULTS.dividend_payout);
+    expect(d.note.length).toBeGreaterThan(0);
+  });
+
+  it("falls back on dividend_payout when no dividends were paid", () => {
+    const input = fixtureSeedInput(withOverrides([{ period: "FY2024", key: "dividends_paid", value: 0 }]));
+    const drivers = deriveDrivers(input);
+    const d = byKey(drivers, "dividend_payout");
+    expect(d.basis).toBe("default");
+    expect(d.value).toBe(DRIVER_DEFAULTS.dividend_payout);
+    expect(d.note.length).toBeGreaterThan(0);
+  });
+
+  it("falls back on dio and dpo, rather than yielding a negative day count, when cost_of_revenue is stored with the wrong sign", () => {
+    // cost_of_revenue stored +660 instead of -660: daysOf's flowSign turns this into a
+    // negative flow, which must be rejected rather than silently producing -36.5 or -54.75.
+    const input = fixtureSeedInput(withOverrides([{ period: "FY2024", key: "cost_of_revenue", value: 660 }]));
+    const drivers = deriveDrivers(input);
+    for (const key of ["dio", "dpo"]) {
+      const d = byKey(drivers, key);
+      expect(d.basis, key).toBe("default");
+      expect(d.value, key).toBe(DRIVER_DEFAULTS[key]);
+      expect(d.note.length, `${key} note`).toBeGreaterThan(0);
+    }
   });
 });
 
