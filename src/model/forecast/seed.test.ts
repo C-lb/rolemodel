@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { DRIVER_KEYS, DRIVER_DEFAULTS } from "./drivers";
 import { deriveDrivers, scenarioSeed, type SeededDriver } from "./seed";
-import { fixtureSeedInput, withOverrides, withGapBeforeLatest } from "./fixtures";
+import { fixtureSeedInput, withOverrides, withGapBeforeLatest, historicalRows, positiveCostRows } from "./fixtures";
 import { closeEnough } from "../tolerance";
 
 /**
@@ -227,10 +227,21 @@ describe("deriveDrivers — degenerate fixtures", () => {
     expect(d.note.length).toBeGreaterThan(0);
   });
 
-  it("falls back on dio and dpo, rather than yielding a negative day count, when cost_of_revenue is stored with the wrong sign", () => {
-    // cost_of_revenue stored +660 instead of -660: daysOf's flowSign turns this into a
-    // negative flow, which must be rejected rather than silently producing -36.5 or -54.75.
+  it("derives dio and dpo identically when cost_of_revenue is stored positive instead of negative", () => {
+    // cost_of_revenue is a structurally one-signed cost line: seeding reads its
+    // magnitude, so +660 and -660 must produce the same day counts, not a fallback.
     const input = fixtureSeedInput(withOverrides([{ period: "FY2024", key: "cost_of_revenue", value: 660 }]));
+    const drivers = deriveDrivers(input);
+    const dio = byKey(drivers, "dio");
+    const dpo = byKey(drivers, "dpo");
+    expect(dio.basis).toBe("derived");
+    expect(dpo.basis).toBe("derived");
+    closeRate(dio.value, 36.5, DAY_TOL);
+    closeRate(dpo.value, 54.75, DAY_TOL);
+  });
+
+  it("falls back on dio and dpo when cost_of_revenue is exactly zero", () => {
+    const input = fixtureSeedInput(withOverrides([{ period: "FY2024", key: "cost_of_revenue", value: 0 }]));
     const drivers = deriveDrivers(input);
     for (const key of ["dio", "dpo"]) {
       const d = byKey(drivers, key);
@@ -238,6 +249,35 @@ describe("deriveDrivers — degenerate fixtures", () => {
       expect(d.value, key).toBe(DRIVER_DEFAULTS[key]);
       expect(d.note.length, `${key} note`).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("deriveDrivers — positive-cost fixture", () => {
+  // The same filing under the opposite sign convention: cost_of_revenue, interest_expense,
+  // income_tax_expense, research_development, selling_general_admin, capital_expenditures
+  // and dividends_paid all printed positive instead of negative (`positiveCostRows`, also
+  // used by the engine's Task 4 fixtures). This is the property the bug missed: every
+  // derivation must produce the SAME driver value regardless of which convention the
+  // source document used, because seeding reads magnitudes, never an assumed sign.
+  const negative = deriveDrivers(fixtureSeedInput({ rows: historicalRows() }));
+  const positive = deriveDrivers(fixtureSeedInput({ rows: positiveCostRows() }));
+
+  it("returns every driver in DRIVER_KEYS exactly once", () => {
+    expect(positive.map((d) => d.key).sort()).toEqual([...DRIVER_KEYS].sort());
+  });
+
+  it("produces the same value as the negative-cost fixture for every driver", () => {
+    for (const neg of negative) {
+      const pos = byKey(positive, neg.key);
+      expect(pos.basis, neg.key).toBe(neg.basis);
+      if (typeof pos.value === "number" && typeof neg.value === "number") {
+        closeRate(pos.value, neg.value, 1e-6);
+      }
+    }
+  });
+
+  it("computes gross_margin as 0.4 from a positive-stored cost_of_revenue (the 160% regression case)", () => {
+    closeRate(byKey(positive, "gross_margin").value, 0.4);
   });
 });
 

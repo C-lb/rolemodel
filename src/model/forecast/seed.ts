@@ -74,7 +74,11 @@ function deriveRevenueGrowth(input: SeedInput): Seeded {
   return derived(value, `Computed as (revenue at ${latest} - revenue at ${prior}) / revenue at ${prior}.`);
 }
 
-/** A percent-of-revenue driver: `numerator(latest) / revenue(latest)`, numerator stored positive. */
+/**
+ * A percent-of-revenue driver: `|numerator(latest)| / revenue(latest)`. `numeratorKey`
+ * is always a cost or expense line, structurally one-signed, so its magnitude is what
+ * is divided by revenue regardless of which sign convention the source document used.
+ */
 function percentOfRevenue(key: string, numeratorKey: string): DeriveFn {
   return (input) => {
     const latest = latestPeriod(input);
@@ -87,9 +91,9 @@ function percentOfRevenue(key: string, numeratorKey: string): DeriveFn {
     if (numerator === undefined) {
       return fallback(key, `${numeratorKey} is missing at ${latest}.`);
     }
-    const value = numerator / revenue;
+    const value = Math.abs(numerator) / revenue;
     if (!Number.isFinite(value)) return fallback(key, `The computed value for ${key} is not a finite number.`);
-    return derived(value, `Computed as ${numeratorKey} / revenue at ${latest}.`);
+    return derived(value, `Computed as |${numeratorKey}| / revenue at ${latest}.`);
   };
 }
 
@@ -104,13 +108,15 @@ function deriveGrossMargin(input: SeedInput): Seeded {
   if (costOfRevenue === undefined) {
     return fallback("gross_margin", `cost_of_revenue is missing at ${latest}.`);
   }
-  // cost_of_revenue is stored negative, so adding it to revenue is subtracting its magnitude.
-  const value = (revenue + costOfRevenue) / revenue;
+  // cost_of_revenue is a structurally one-signed cost line whose stored sign varies by
+  // document (prompt.ts keeps whatever sign the filing used), so its magnitude, not an
+  // assumed sign, is what's subtracted from revenue.
+  const value = (revenue - Math.abs(costOfRevenue)) / revenue;
   if (!Number.isFinite(value)) return fallback("gross_margin", "The computed gross margin is not a finite number.");
-  return derived(value, `Computed as (revenue + cost_of_revenue) / revenue at ${latest}, cost_of_revenue negative.`);
+  return derived(value, `Computed as (revenue - |cost_of_revenue|) / revenue at ${latest}.`);
 }
 
-/** capex_pct_revenue: capital_expenditures is stored negative, so its magnitude is what's divided by revenue. */
+/** capex_pct_revenue: capital_expenditures is a one-signed outflow, so its magnitude is what's divided by revenue. */
 function deriveCapexPctRevenue(input: SeedInput): Seeded {
   const latest = latestPeriod(input);
   if (latest === undefined) return fallback("capex_pct_revenue", "No historical period is available.");
@@ -120,13 +126,13 @@ function deriveCapexPctRevenue(input: SeedInput): Seeded {
   }
   const capex = input.valueAt("capital_expenditures", latest);
   if (capex === undefined) return fallback("capex_pct_revenue", `capital_expenditures is missing at ${latest}.`);
-  const value = -capex / revenue;
+  const value = Math.abs(capex) / revenue;
   if (!Number.isFinite(value)) return fallback("capex_pct_revenue", "The computed value is not a finite number.");
-  return derived(value, `Computed as -capital_expenditures / revenue at ${latest}, capital_expenditures negative.`);
+  return derived(value, `Computed as |capital_expenditures| / revenue at ${latest}.`);
 }
 
-/** A day-count driver: `balance(latest) / flow(latest) * 365`, where `flow` may be stored negative. */
-function daysOf(key: string, balanceKey: string, flowKey: string, flowSign: 1 | -1): DeriveFn {
+/** A day-count driver: `balance(latest) / |flow(latest)| * 365`. `flow` is a one-signed line, read as a magnitude. */
+function daysOf(key: string, balanceKey: string, flowKey: string): DeriveFn {
   return (input) => {
     const latest = latestPeriod(input);
     if (latest === undefined) return fallback(key, "No historical period is available.");
@@ -134,17 +140,15 @@ function daysOf(key: string, balanceKey: string, flowKey: string, flowSign: 1 | 
     if (balance === undefined) return fallback(key, `${balanceKey} is missing at ${latest}.`);
     const rawFlow = input.valueAt(flowKey, latest);
     if (rawFlow === undefined) return fallback(key, `${flowKey} is missing at ${latest}.`);
-    const flow = flowSign * rawFlow;
-    // Reject non-positive, not just zero: a statement that stored `flowKey` with the
-    // wrong sign for this convention would otherwise silently produce a negative day
-    // count rather than falling back.
+    const flow = Math.abs(rawFlow);
+    // Reject non-positive, not just missing: a zero-flow line would otherwise silently
+    // produce a zero or infinite day count rather than falling back.
     if (flow <= 0) {
-      return fallback(key, `${flowKey} at ${latest} is zero or has an unexpected sign, so a day count cannot be computed.`);
+      return fallback(key, `${flowKey} at ${latest} is zero, so a day count cannot be computed.`);
     }
     const value = (balance / flow) * DAYS_IN_YEAR;
     if (!Number.isFinite(value)) return fallback(key, "The computed day count is not a finite number.");
-    const flowExpr = flowSign === -1 ? `-${flowKey}` : flowKey;
-    return derived(value, `Computed as ${balanceKey} / (${flowExpr}) * 365 at ${latest}.`);
+    return derived(value, `Computed as ${balanceKey} / |${flowKey}| * 365 at ${latest}.`);
   };
 }
 
@@ -179,15 +183,15 @@ function deriveTaxRate(input: SeedInput): Seeded {
   }
   const incomeTaxExpense = input.valueAt("income_tax_expense", latest);
   if (incomeTaxExpense === undefined) return fallback("tax_rate", `income_tax_expense is missing at ${latest}.`);
-  // income_tax_expense is stored negative, so its magnitude is what's divided by pretax income.
-  const value = -incomeTaxExpense / pretaxIncome;
+  // income_tax_expense is a one-signed cost line; its magnitude is divided by pretax income.
+  const value = Math.abs(incomeTaxExpense) / pretaxIncome;
   if (!Number.isFinite(value) || value < TAX_RATE_MIN || value > TAX_RATE_MAX) {
     return fallback(
       "tax_rate",
       `The computed tax rate at ${latest} falls outside the plausible ${TAX_RATE_MIN}–${TAX_RATE_MAX} range.`,
     );
   }
-  return derived(value, `Computed as -income_tax_expense / pretax_income at ${latest}, income_tax_expense negative.`);
+  return derived(value, `Computed as |income_tax_expense| / pretax_income at ${latest}.`);
 }
 
 function deriveInterestRateDebt(input: SeedInput): Seeded {
@@ -206,8 +210,8 @@ function deriveInterestRateDebt(input: SeedInput): Seeded {
   if (interestExpense === undefined) {
     return fallback("interest_rate_debt", `interest_expense is missing at ${latest}.`);
   }
-  // interest_expense is stored negative, so its magnitude is what's divided by debt.
-  const value = -interestExpense / openingDebt;
+  // interest_expense is a one-signed cost line; its magnitude is divided by debt.
+  const value = Math.abs(interestExpense) / openingDebt;
   if (!Number.isFinite(value) || value < INTEREST_RATE_DEBT_MIN || value > INTEREST_RATE_DEBT_MAX) {
     return fallback(
       "interest_rate_debt",
@@ -216,7 +220,7 @@ function deriveInterestRateDebt(input: SeedInput): Seeded {
   }
   return derived(
     value,
-    `Computed as -interest_expense / (short_term_debt + long_term_debt + revolver) at ${latest}, interest_expense negative.`,
+    `Computed as |interest_expense| / (short_term_debt + long_term_debt + revolver) at ${latest}.`,
   );
 }
 
@@ -258,8 +262,8 @@ function deriveDividendPayout(input: SeedInput): Seeded {
   if (dividendsPaid === undefined) {
     return fallback("dividend_payout", `dividends_paid is missing at ${latest}.`);
   }
-  // dividends_paid is stored negative, so its magnitude is what's divided by net income.
-  const magnitude = -dividendsPaid;
+  // dividends_paid is a one-signed outflow; its magnitude is divided by net income.
+  const magnitude = Math.abs(dividendsPaid);
   if (magnitude <= 0) {
     return fallback("dividend_payout", `No dividends were paid at ${latest}.`);
   }
@@ -270,7 +274,7 @@ function deriveDividendPayout(input: SeedInput): Seeded {
       `The computed payout ratio at ${latest} falls outside the plausible ${DIVIDEND_PAYOUT_MIN}–${DIVIDEND_PAYOUT_MAX} range.`,
     );
   }
-  return derived(value, `Computed as -dividends_paid / net_income at ${latest}, dividends_paid negative.`);
+  return derived(value, `Computed as |dividends_paid| / net_income at ${latest}.`);
 }
 
 /** No line item in the taxonomy lets this driver be read from a historical statement. */
@@ -285,9 +289,9 @@ const DERIVERS: Readonly<Record<string, DeriveFn>> = {
   sga_pct_revenue: percentOfRevenue("sga_pct_revenue", "selling_general_admin"),
   sbc_pct_revenue: percentOfRevenue("sbc_pct_revenue", "stock_based_compensation"),
   other_income_expense: deriveOtherIncomeExpense,
-  dso: daysOf("dso", "accounts_receivable", "revenue", 1),
-  dio: daysOf("dio", "inventory", "cost_of_revenue", -1),
-  dpo: daysOf("dpo", "accounts_payable", "cost_of_revenue", -1),
+  dso: daysOf("dso", "accounts_receivable", "revenue"),
+  dio: daysOf("dio", "inventory", "cost_of_revenue"),
+  dpo: daysOf("dpo", "accounts_payable", "cost_of_revenue"),
   capex_pct_revenue: deriveCapexPctRevenue,
   depreciation_pct_ppe: deriveDepreciationPctPpe,
   tax_rate: deriveTaxRate,
