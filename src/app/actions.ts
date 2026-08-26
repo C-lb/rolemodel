@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { realDeps } from "@/server/deps";
 import { ingestAndExtract, setOverride, type ActionResult } from "@/server/documents";
 import { remapFact } from "@/server/remap";
+import { saveCustomRatio, deleteCustomRatio, setAveragingMode } from "@/server/ratios";
+import { explainRatio as explain, type RatioReading } from "@/server/interpretation";
+import { computeRatios, type RatioResult } from "@/model/ratios/compute";
+import { loadWorkspace } from "@/server/documents";
+import type { AveragingMode } from "@/model/ratios/types";
 
 const DB_ERROR_REMEDIATION =
   "Try again. If it keeps happening, check the terminal running the app for the full database error.";
@@ -67,4 +72,53 @@ export async function remapLineItem(
   }
   revalidatePath(`/w/${workspaceId}`);
   return { ok: true, data: null };
+}
+
+export async function setAveraging(
+  workspaceId: string, mode: AveragingMode,
+): Promise<ActionResult<null>> {
+  const result = await setAveragingMode(realDeps(), workspaceId, mode);
+  if (result.ok) revalidatePath(`/w/${workspaceId}`);
+  return result;
+}
+
+export async function saveRatio(
+  workspaceId: string, draft: { label: string; expression: string; note: string | null },
+): Promise<ActionResult<{ key: string }>> {
+  const result = await saveCustomRatio(realDeps(), { workspaceId, ...draft });
+  if (result.ok) revalidatePath(`/w/${workspaceId}`);
+  return result;
+}
+
+export async function deleteRatio(workspaceId: string, key: string): Promise<ActionResult<null>> {
+  const result = await deleteCustomRatio(realDeps(), workspaceId, key);
+  if (result.ok) revalidatePath(`/w/${workspaceId}`);
+  return result;
+}
+
+/**
+ * The reading is generated from the numbers the server computes, not from anything the
+ * client sends: a client that could choose the figures could ask for a reading of numbers
+ * nobody has seen.
+ */
+export async function explainRatio(
+  workspaceId: string, ratioKey: string,
+): Promise<ActionResult<RatioReading>> {
+  const deps = realDeps();
+  const ws = await loadWorkspace(deps, workspaceId);
+  const results: RatioResult[] = computeRatios({
+    workspace: ws,
+    mode: ws.averagingMode,
+    custom: ws.customRatios,
+  });
+
+  const result = results.find((r) => r.key === ratioKey);
+  if (!result) {
+    return {
+      ok: false, code: "unknown_ratio", message: `No ratio "${ratioKey}" in this workspace.`,
+      remediation: "Reload the page and try again.",
+    };
+  }
+
+  return explain(deps, workspaceId, result, ws.averagingMode);
 }

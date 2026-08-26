@@ -48,6 +48,9 @@ export const CONTROL_KEYS = [
   "control.ratio_inputs",
   "control.ratio_expression",
   "control.ratio_chip",
+  "control.ratio_focus",
+  "control.ratio_averaging",
+  "control.ratio_new",
 ] as const;
 
 const controlTooltips: Record<(typeof CONTROL_KEYS)[number], string> = {
@@ -58,6 +61,9 @@ const controlTooltips: Record<(typeof CONTROL_KEYS)[number], string> = {
   "control.dismiss_banner": "Hide this message for the rest of this session. Nothing about the figures changes, and it comes back if you reload the page while the problem is still there.",
   "control.confidence_badge": "How confident the extractor was in this figure and its mapping. Below 60% is flagged for review.",
   "control.ratio_explain": "Ask for a short read of what these numbers did across the periods. It is generated from the computed values only, never from the source document, and it is kept until one of those values changes.",
+  "control.ratio_focus": "Narrow the list to the twelve ratios a case study almost always wants, or show all twenty-five. This changes what is displayed, never how anything is computed.",
+  "control.ratio_averaging": "How balance-sheet figures are read where a ratio divides a flow by a stock, such as return on equity. Average takes the mean of the opening and closing balance where a prior period exists; ending uses the closing balance. Ratios measured entirely on one date, like the current ratio, are unaffected either way.",
+  "control.ratio_new": "Build your own ratio from line items and the four operators. It computes under exactly the same rules as the built-in library.",
   "control.ratio_expression": "Line items, numbers, brackets and the four operators. A line item is written by its key, and a ratio you have already saved can be used the same way. No functions, and nothing is executed as code.",
   "control.ratio_chip": "Press a line item to add it to the expression, or drag it into the box. Both do the same thing, so this works without a mouse.",
   "control.ratio_inputs": "Show the figures this ratio was built from: what each component held, what the ratio actually used after any sign or averaging adjustment, and a link back to where each figure came from.",

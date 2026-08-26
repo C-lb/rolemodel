@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { realDeps } from "@/server/deps";
 import { loadWorkspace } from "@/server/documents";
 import { isWorkspaceNotFound } from "@/server/errors";
+import { computeRatios } from "@/model/ratios/compute";
 import { WorkspaceScreen } from "./WorkspaceScreen";
 
 export default async function WorkspacePage({ params }: { params: Promise<{ id: string }> }) {
@@ -18,6 +19,10 @@ export default async function WorkspacePage({ params }: { params: Promise<{ id: 
     throw error;
   }
 
+  // Ratios are computed here, on the server, so the screen receives values rather than
+  // the means to compute them. Same rule the statements follow.
+  const ratios = computeRatios({ workspace: ws, mode: ws.averagingMode, custom: ws.customRatios });
+
   return (
     <WorkspaceScreen
       workspaceId={id}
@@ -25,6 +30,9 @@ export default async function WorkspacePage({ params }: { params: Promise<{ id: 
       periods={ws.periods}
       findings={ws.findings}
       unmapped={ws.unmapped}
+      ratios={ratios}
+      customRatios={ws.customRatios}
+      averagingMode={ws.averagingMode}
       statements={{
         income: ws.statement("income"),
         balance: ws.statement("balance"),

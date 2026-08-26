@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { buildWorkspace } from "@/model/workspace";
+import { computeRatios } from "@/model/ratios/compute";
 import { ToastProvider } from "@/ui/ToastProvider";
 import { WorkspaceScreen } from "./WorkspaceScreen";
 import { saveOverride, clearOverride, remapLineItem } from "@/app/actions";
@@ -11,6 +12,10 @@ vi.mock("@/app/actions", () => ({
   saveOverride: vi.fn(async () => ({ ok: true, data: null })),
   clearOverride: vi.fn(async () => ({ ok: true, data: null })),
   remapLineItem: vi.fn(async () => ({ ok: true, data: null })),
+  setAveraging: vi.fn(async () => ({ ok: true, data: null })),
+  saveRatio: vi.fn(async () => ({ ok: true, data: { key: "k" } })),
+  deleteRatio: vi.fn(async () => ({ ok: true, data: null })),
+  explainRatio: vi.fn(async () => ({ ok: true, data: { text: "", declined: false, reason: null, cached: false } })),
 }));
 
 const save = vi.mocked(saveOverride);
@@ -44,6 +49,9 @@ function renderScreen(override?: number, unmapped: (typeof unmappedFact)[] = [])
         findings={ws.findings}
         unmapped={unmapped}
         statements={{ income: ws.statement("income"), balance: ws.statement("balance"), cashflow: ws.statement("cashflow") }}
+        ratios={computeRatios({ workspace: ws, mode: "average", custom: [] })}
+        customRatios={[]}
+        averagingMode="average"
       />
     </ToastProvider>,
   );

@@ -14,8 +14,21 @@ import { ProvenancePanel } from "@/ui/ProvenancePanel";
 import { Banner } from "@/ui/Banner";
 import { useToast } from "@/ui/ToastProvider";
 import { tooltip } from "@/ui/tooltips";
+import { Tooltip } from "@/ui/Tooltip";
 import { UNMAPPED_KEY } from "@/model/taxonomy";
-import { saveOverride, clearOverride, remapLineItem } from "@/app/actions";
+import { RATIO_FAMILIES } from "@/model/ratios/types";
+import { CORE_KEYS } from "@/model/ratios/library";
+import type { AveragingMode, RatioFamily } from "@/model/ratios/types";
+import { computeRatios, dupont, type CustomRatioInput, type RatioPeriodResult, type RatioResult } from "@/model/ratios/compute";
+import { buildWorkspace } from "@/model/workspace";
+import { RatioCard, type ReadingState } from "@/ui/RatioCard";
+import { RatioSection } from "@/ui/RatioSection";
+import { RatioBuilder, type RatioDraft } from "@/ui/RatioBuilder";
+import { DupontCard } from "@/ui/DupontCard";
+import {
+  saveOverride, clearOverride, remapLineItem,
+  setAveraging, saveRatio, deleteRatio, explainRatio,
+} from "@/app/actions";
 
 interface Statements {
   income: StatementRow[];
@@ -30,7 +43,21 @@ interface Props {
   findings: Finding[];
   statements: Statements;
   unmapped: UnmappedFact[];
+  /** Computed on the server, so the view holds no financial logic. */
+  ratios: RatioResult[];
+  customRatios: CustomRatioInput[];
+  averagingMode: AveragingMode;
 }
+
+type WorkspaceView = "statements" | "ratios";
+
+const FAMILY_TITLES: Record<RatioFamily, string> = {
+  liquidity: "Liquidity",
+  leverage: "Leverage",
+  efficiency: "Efficiency",
+  profitability: "Profitability",
+  coverage: "Coverage",
+};
 
 type SaveResult = Awaited<ReturnType<typeof saveOverride>>;
 
@@ -56,8 +83,16 @@ const cellId = (key: string, period: string) => `${key}::${period}`;
 const findingId = (f: Finding) => `${f.code}:${f.periodKey}:${f.keys.join(",")}`;
 
 
-export function WorkspaceScreen({ workspaceId, documentName, periods, findings, statements, unmapped }: Props) {
+export function WorkspaceScreen({
+  workspaceId, documentName, periods, findings, statements, unmapped,
+  ratios, customRatios, averagingMode,
+}: Props) {
   const [inspected, setInspected] = useState<Cell | null>(null);
+  const [view, setView] = useState<WorkspaceView>("statements");
+  const [coreOnly, setCoreOnly] = useState(false);
+  const [building, setBuilding] = useState(false);
+  const [builderError, setBuilderError] = useState<string | null>(null);
+  const [readings, setReadings] = useState<Record<string, ReadingState>>({});
   const [dragging, setDragging] = useState(false);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [saveFailure, setSaveFailure] = useState<SaveFailure | null>(null);
@@ -157,6 +192,112 @@ export function WorkspaceScreen({ workspaceId, documentName, periods, findings, 
     });
   }
 
+  /**
+   * The builder's preview runs the same engine the server does, over the figures already
+   * on screen. It is a pure computation over data the client holds, so it needs no round
+   * trip, and an expression that resolves to nothing is visible before it is saved.
+   */
+  const previewWorkspace = useMemo(() => {
+    const facts = [];
+    const overrides = [];
+    for (const cell of cells.values()) {
+      if (cell.extractedValue !== undefined) {
+        facts.push({
+          canonicalKey: cell.canonicalKey,
+          periodKey: cell.periodKey,
+          value: cell.extractedValue,
+          confidence: cell.confidence ?? 1,
+          provenance: cell.provenance ?? {
+            page: null, sheet: null, locator: "", rawLabel: "", rawValue: "",
+            scaleFactor: 1, scaleEvidence: "", signFlipped: false,
+          },
+        });
+      }
+      if (cell.source === "override" && cell.value !== undefined) {
+        overrides.push({ canonicalKey: cell.canonicalKey, periodKey: cell.periodKey, value: cell.value });
+      }
+    }
+    return buildWorkspace({ periods, facts, overrides });
+  }, [cells, periods]);
+
+  function previewExpression(expression: string): RatioPeriodResult[] {
+    const computed = computeRatios({
+      workspace: previewWorkspace,
+      mode: averagingMode,
+      custom: [{ key: "__preview", label: "Preview", expression, note: null }],
+    });
+    return computed.find((r) => r.key === "__preview")?.periods ?? [];
+  }
+
+  /** Ask for the generated half of one card. The numbers stay on screen throughout. */
+  function explain(key: string) {
+    setReadings((current) => ({ ...current, [key]: { state: "loading" } }));
+    startTransition(async () => {
+      const result = await explainRatio(workspaceId, key);
+      setReadings((current) => ({
+        ...current,
+        [key]: result.ok
+          ? result.data.declined
+            ? { state: "declined", reason: result.data.reason }
+            : { state: "ready", text: result.data.text }
+          : { state: "failed", message: result.message },
+      }));
+    });
+  }
+
+  function chooseAveraging(mode: AveragingMode) {
+    if (mode === averagingMode) return;
+    startTransition(async () => {
+      const result = await setAveraging(workspaceId, mode);
+      if (!result.ok) {
+        toast.show(result.message);
+        return;
+      }
+      // Every cached reading described the previous convention's numbers.
+      setReadings({});
+      router.refresh();
+    });
+  }
+
+  function persistRatio(draft: RatioDraft, onSaved: () => void) {
+    startTransition(async () => {
+      const result = await saveRatio(workspaceId, draft);
+      if (!result.ok) {
+        setBuilderError(result.message);
+        return;
+      }
+      setBuilderError(null);
+      router.refresh();
+      onSaved();
+    });
+  }
+
+  function removeRatio(key: string) {
+    const removed = customRatios.find((r) => r.key === key);
+    startTransition(async () => {
+      const result = await deleteRatio(workspaceId, key);
+      if (!result.ok) {
+        toast.show(result.message);
+        return;
+      }
+      router.refresh();
+      toast.show("Ratio deleted", {
+        undo: removed
+          ? () => persistRatio(
+              { label: removed.label, expression: removed.expression, note: removed.note },
+              () => toast.show("Ratio restored"),
+            )
+          : undefined,
+      });
+    });
+  }
+
+  /** A ratio component points back at the cell it came from, so provenance is one click away. */
+  function inspectComponent(canonicalKey: string, periodKey: string) {
+    const cell = cells.get(cellId(canonicalKey, periodKey));
+    if (cell) setInspected(cell);
+  }
+
   function handleDragEnd(event: DragEndEvent) {
     setDragging(false);
     const toKey = droppedRowKey(event.over?.id);
@@ -165,6 +306,10 @@ export function WorkspaceScreen({ workspaceId, documentName, periods, findings, 
   }
 
   const visible = findings.filter((f) => !dismissed.has(findingId(f)));
+  const builtIn = ratios.filter((r) => !r.isCustom);
+  const shown = coreOnly ? builtIn.filter((r) => CORE_KEYS.includes(r.key)) : builtIn;
+  const custom = ratios.filter((r) => r.isCustom);
+  const decomposition = dupont(ratios, periods[0] ?? "");
   const hasFigures = STATEMENT_TITLES.some(([kind]) =>
     statements[kind].some((row) => row.cells.some((c) => c.value !== undefined)),
   );
@@ -220,6 +365,125 @@ export function WorkspaceScreen({ workspaceId, documentName, periods, findings, 
           </div>
         )}
 
+        <div role="tablist" aria-label="Workspace views" className="flex flex-wrap gap-2">
+          {([["statements", "Statements"], ["ratios", "Ratios"]] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={view === id}
+              onClick={() => setView(id)}
+              className={`whitespace-nowrap rounded-[10px] border px-4 py-2 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 ${
+                view === id
+                  ? "border-white/15 bg-white/[0.08] text-neutral-100"
+                  : "border-white/10 text-neutral-400 hover:bg-white/[0.04] hover:text-neutral-200"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {view === "ratios" ? (
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-wrap items-center gap-2">
+              <Tooltip label={tooltip("control.ratio_focus")}>
+                <div className="flex gap-2">
+                  {([[false, "All 25"], [true, "Core 12"]] as const).map(([value, label]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      aria-pressed={coreOnly === value}
+                      onClick={() => setCoreOnly(value)}
+                      className={`whitespace-nowrap rounded-[10px] border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 ${
+                        coreOnly === value
+                          ? "border-white/15 bg-white/[0.08] text-neutral-100"
+                          : "border-white/10 text-neutral-400 hover:bg-white/[0.04] hover:text-neutral-200"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Tooltip>
+
+              <Tooltip label={tooltip("control.ratio_averaging")}>
+                <div className="flex gap-2">
+                  {([["average", "Average balances"], ["ending", "Ending balances"]] as const).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={averagingMode === mode}
+                      onClick={() => chooseAveraging(mode)}
+                      className={`whitespace-nowrap rounded-[10px] border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 ${
+                        averagingMode === mode
+                          ? "border-white/15 bg-white/[0.08] text-neutral-100"
+                          : "border-white/10 text-neutral-400 hover:bg-white/[0.04] hover:text-neutral-200"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Tooltip>
+
+              <Tooltip label={tooltip("control.ratio_new")}>
+                <button
+                  type="button"
+                  onClick={() => { setBuilderError(null); setBuilding(true); }}
+                  className="whitespace-nowrap rounded-[10px] border border-white/10 px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500"
+                >
+                  New ratio
+                </button>
+              </Tooltip>
+            </div>
+
+            {building && (
+              <RatioBuilder
+                onPreview={previewExpression}
+                onSave={(draft) => persistRatio(draft, () => {
+                  setBuilding(false);
+                  toast.show("Ratio saved");
+                })}
+                onCancel={() => { setBuilding(false); setBuilderError(null); }}
+                saveError={builderError}
+              />
+            )}
+
+            <DupontCard result={decomposition} />
+
+            {RATIO_FAMILIES.map((family) => {
+              const inFamily = shown.filter((r) => r.family === family);
+              return (
+                <RatioSection key={family} title={FAMILY_TITLES[family]} count={inFamily.length}>
+                  {inFamily.map((result) => (
+                    <RatioCard
+                      key={result.key}
+                      result={result}
+                      reading={readings[result.key]}
+                      onExplain={explain}
+                      onShowProvenance={inspectComponent}
+                    />
+                  ))}
+                </RatioSection>
+              );
+            })}
+
+            <RatioSection title="Your ratios" count={custom.length}>
+              {custom.map((result) => (
+                <RatioCard
+                  key={result.key}
+                  result={result}
+                  reading={readings[result.key]}
+                  onExplain={explain}
+                  onShowProvenance={inspectComponent}
+                  onDelete={removeRatio}
+                />
+              ))}
+            </RatioSection>
+          </div>
+        ) : (
+        <>
         <RemapDrawer facts={unmapped} onRemap={(factId, key) => remap(factId, key)} />
 
         {hasFigures ? (
@@ -239,6 +503,8 @@ export function WorkspaceScreen({ workspaceId, documentName, periods, findings, 
           <p className="max-w-[68ch] text-sm leading-relaxed text-neutral-400">
             No figures were extracted from this document, so there is nothing to show yet.
           </p>
+        )}
+        </>
         )}
 
         {inspected && (

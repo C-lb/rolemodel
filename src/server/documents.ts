@@ -11,6 +11,8 @@ import { buildWorkspace, type WorkspaceView } from "@/model/workspace";
 import { UNMAPPED_KEY } from "@/model/taxonomy";
 import { sortPeriodsMostRecentFirst } from "@/model/periods";
 import { WorkspaceNotFoundError } from "./errors";
+import type { AveragingMode } from "@/model/ratios/types";
+import type { CustomRatioInput } from "@/model/ratios/compute";
 
 export interface Deps {
   db: Db;
@@ -161,7 +163,15 @@ export interface UnmappedFactRow {
 export async function loadWorkspace(
   deps: Deps,
   workspaceId: string,
-): Promise<WorkspaceView & { documentName: string; runId: string | null; unmapped: UnmappedFactRow[] }> {
+): Promise<
+  WorkspaceView & {
+    documentName: string;
+    runId: string | null;
+    unmapped: UnmappedFactRow[];
+    customRatios: CustomRatioInput[];
+    averagingMode: AveragingMode;
+  }
+> {
   const [workspace] = deps.db.select().from(schema.workspaces)
     .where(eq(schema.workspaces.id, workspaceId)).all();
   if (!workspace) throw new WorkspaceNotFoundError(workspaceId);
@@ -215,7 +225,22 @@ export async function loadWorkspace(
       .map((c) => ({ canonicalKey: c.canonicalKey, periodKey: c.periodKey })),
   });
 
-  return { ...view, documentName: workspace.name, runId: workspace.activeRunId, unmapped };
+  const customRatios: CustomRatioInput[] = deps.db
+    .select()
+    .from(schema.customRatios)
+    .where(eq(schema.customRatios.workspaceId, workspaceId))
+    .all()
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map((row) => ({ key: row.key, label: row.label, expression: row.expression, note: row.note }));
+
+  return {
+    ...view,
+    documentName: workspace.name,
+    runId: workspace.activeRunId,
+    unmapped,
+    customRatios,
+    averagingMode: workspace.averagingMode === "ending" ? "ending" : "average",
+  };
 }
 
 export async function setOverride(
