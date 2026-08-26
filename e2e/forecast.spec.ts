@@ -243,3 +243,28 @@ test("a ratio gains a forecast column with a real computed value", async ({ page
   const fy2025Value = card.locator("dt", { hasText: "FY2025" }).locator("xpath=following-sibling::dd[1]");
   await expect(fy2025Value).toHaveText(expectedMargin);
 });
+
+/**
+ * The re-seed control, walked in a real browser because that is where this milestone
+ * has found its real defects. Deliberately last in the file: re-seeding overwrites
+ * every driver with the values derived from history, which is exactly the state every
+ * other test in this file expects on entry, so it restores rather than disturbs.
+ */
+test("re-seeds a scenario's drivers from the current history", async ({ page }) => {
+  await ensureScenarios(page);
+
+  const driverCell = page.getByRole("button", { name: /^Revenue growth, FY2025/ });
+  await driverCell.dblclick();
+  const editor = page.getByRole("textbox");
+  await editor.fill("40");
+  await editor.press("Enter");
+  await expect(page.getByRole("button", { name: "Revenue growth, FY2025: 40.00%" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Re-seed drivers" }).click();
+
+  // Back to the value derived from history: (15,000 - 12,000) / 12,000 = 25%.
+  await expect(page.getByRole("button", { name: "Revenue growth, FY2025: 25.00%" })).toBeVisible();
+  await expect(page.locator("main").getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Revenue, FY2025:.*Show the forecast formula/ }))
+    .toContainText("18,750");
+});
