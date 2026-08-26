@@ -1,6 +1,14 @@
 import { test, expect, type Page } from "@playwright/test";
 import { WORKSPACE_ID } from "./seed";
 
+/** "18,750" -> 18750, "(1,234)" -> -1234 - the inverse of `formatMoney`. */
+function parseFormattedMoney(text: string): number {
+  const negative = text.trim().startsWith("(");
+  const digits = text.replace(/[(),]/g, "").trim();
+  const n = Number(digits);
+  return negative ? -n : n;
+}
+
 /**
  * The seeded workspace's three periods (FY2022-FY2024) are already annual, and its
  * facts now include the equity breakdown (`common_stock_apic`, `retained_earnings`)
@@ -12,6 +20,17 @@ import { WORKSPACE_ID } from "./seed";
  * Scenarios persist in the shared seeded database across every test in this file
  * (`workers: 1`, `fullyParallel: false`), so only the first test to reach the tab
  * presses "Set up scenarios" - every later test finds the trio already there.
+ *
+ * Residual coupling, left as-is rather than contorted away: every test that reads
+ * FY2025's revenue_growth assumes it is the seeded 25% on entry. That is not this
+ * file's own state - it holds only because every sibling that changes FY2025 (or a
+ * period fill-right can reach) restores it before finishing. A test run alone via
+ * `--grep` still passes (a fresh scenario always seeds 25%), but the full-file run
+ * depends on each restoration actually running - a test that fails and skips its
+ * own cleanup would leave the next one reading a value it did not expect. Fully
+ * decoupling this would mean giving each test its own scenario (one `createScenario`
+ * call per test) rather than sharing the workspace's Base scenario throughout, which
+ * is a bigger restructuring than this fix is worth.
  */
 async function ensureScenarios(page: Page): Promise<void> {
   const setup = page.getByRole("button", { name: "Set up scenarios" });
@@ -150,7 +169,7 @@ test("runs a sensitivity grid", async ({ page }) => {
 
   // Defaults: row axis is revenue_growth, column axis is gross_margin (the first two
   // DRIVER_KEYS), output metric is revenue (the first line item), output period is
-  // FY2025. This fixture's derived gross_margin is 0.4 (15,000 - |9,000|) / 15,000).
+  // FY2025. This fixture's derived gross_margin is 0.4: (15,000 - |9,000|) / 15,000.
   // Row steps 0.2/0.25/0.3 and column steps 0.3/0.4/0.5 both put the scenario's own
   // current driver values on the middle step of each axis, so cell [1][1] is the base case.
   await page.getByLabel("Sensitivity row minimum").fill("0.2");
@@ -180,4 +199,47 @@ test("a forecast cell cannot be typed into", async ({ page }) => {
   await revenueCell.dblclick();
   await expect(page.getByRole("textbox")).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: /How Revenue was forecast/ })).toBeVisible();
+});
+
+/**
+ * Closes the coverage hole the server-side move opened: `WorkspaceForecast.test.tsx`'s
+ * "ratios gain a forecast column" test computes its own forecast-layer workspace, so
+ * it proves `WorkspaceScreen` renders whatever it is handed - it does not touch
+ * `page.tsx`, which is the only place that actually assembles the forecast-layer
+ * ratios workspace server-side (spec §7). `e2e/ratios.spec.ts` never opens a scenario
+ * either. This is the one place both are exercised together, in a real browser,
+ * against the real server.
+ *
+ * Self-verifying rather than hand-derived: the Forecast tab's own Revenue and Net
+ * income cells are the real engine output for FY2025, read directly off the page
+ * rather than recomputed by hand, then compared against what the Ratios tab's Net
+ * margin card shows for the same period. If `page.tsx` failed to wire the forecast
+ * layer into `computeRatios` - wrong values, wrong periods, or the column missing
+ * outright - this comparison would catch it; a hand-picked expected percentage could
+ * not, since deriving it by hand would just be re-implementing the engine's
+ * seventeen-driver model in the test.
+ */
+test("a ratio gains a forecast column with a real computed value", async ({ page }) => {
+  await ensureScenarios(page);
+
+  // The button's visible text is just the formatted figure (e.g. "18,750"); the
+  // fuller "Revenue, FY2025: 18,750. Show the forecast formula." sentence is its
+  // aria-label, used above only to locate the right button.
+  const revenueText = await page.getByRole("button", { name: /Revenue, FY2025:.*Show the forecast formula/ }).innerText();
+  // Net income appears on both the income statement and as the cash-flow
+  // statement's opening line, so this scopes to the income statement's table.
+  const netIncomeText = await page
+    .getByRole("table", { name: "Income statement" })
+    .getByRole("button", { name: /Net income, FY2025:.*Show the forecast formula/ })
+    .innerText();
+  const revenue = parseFormattedMoney(revenueText);
+  const netIncome = parseFormattedMoney(netIncomeText);
+  const expectedMargin = `${((netIncome / revenue) * 100).toFixed(1)}%`;
+
+  await page.getByRole("tab", { name: "Ratios" }).click();
+  const card = page.getByRole("article").filter({ hasText: "Net margin" });
+  await expect(card).toContainText("Excludes forecast periods");
+
+  const fy2025Value = card.locator("dt", { hasText: "FY2025" }).locator("xpath=following-sibling::dd[1]");
+  await expect(fy2025Value).toHaveText(expectedMargin);
 });

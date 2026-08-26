@@ -300,61 +300,49 @@ describe("ratios over the forecast", () => {
  * shipped once (nine sensitivity controls plus "Run sensitivity" and "Set up
  * scenarios" had no `Tooltip` wrapper and no entry) - is invisible to it either way.
  *
- * There is no honest way to generalise "every interactive control has a tooltip"
- * into a blanket assertion: the codebase does not actually follow that rule.
- * `DriverGrid`'s per-cell value button and `ScenarioBar`'s inline "Create"/"Save"
- * confirm buttons are deliberately untooltipped (the row label and the add/rename
- * control that opened them carry the explanation instead), so a blanket check would
- * need its own hand-maintained exemption list - which has exactly the same blind
- * spot as `CONTROL_KEYS` itself: a new control could be added to neither list.
+ * There is no honest way to generalise "every interactive control in the app has a
+ * tooltip" into a blanket assertion: the codebase does not actually follow that
+ * rule. `DriverGrid`'s per-cell value button and `ScenarioBar`'s inline
+ * "Create"/"Save" confirm buttons are deliberately untooltipped (the row label and
+ * the add/rename control that opened them carry the explanation instead).
  *
- * What IS honest: a scoped regression test, behavioural rather than textual, over
- * the specific set of controls this task introduced. It does not generalise to a
- * future control outside this list, and that limitation is deliberate rather than
- * an oversight - see the paragraph above.
+ * What IS honest, and has no exemption list of its own: scoping the invariant to a
+ * specific container this task owns, where every interactive element inside it truly
+ * is meant to carry a tooltip. Unlike a hardcoded list of control names, this catches
+ * a twelfth bare control added to either container tomorrow - it queries the DOM for
+ * whatever `input`/`select`/`button` elements exist, not a fixed enumeration of the
+ * ones already fixed.
  */
-describe("tooltip coverage on this task's new controls", () => {
-  const NEW_CONTROLS = [
-    "Sensitivity row driver",
-    "Sensitivity row minimum",
-    "Sensitivity row maximum",
-    "Sensitivity row steps",
-    "Sensitivity column driver",
-    "Sensitivity column minimum",
-    "Sensitivity column maximum",
-    "Sensitivity column steps",
-    "Sensitivity output metric",
-    "Sensitivity output period",
-  ] as const;
+function expectEveryControlHasATooltip(container: HTMLElement): void {
+  const controls = container.querySelectorAll("input, select, button");
+  expect(controls.length).toBeGreaterThan(0);
+  for (const control of Array.from(controls)) {
+    fireEvent.focus(control);
+    expect(screen.getByRole("tooltip")).toBeTruthy();
+    fireEvent.blur(control);
+  }
+}
 
-  it("wraps every sensitivity input and select in a Tooltip", () => {
+describe("tooltip coverage on this task's new controls", () => {
+  it("wraps every control inside the Sensitivity section in a Tooltip", () => {
     renderScreen(baseForecast());
     openForecast();
 
-    for (const label of NEW_CONTROLS) {
-      const control = screen.getByLabelText(label);
-      fireEvent.focus(control);
-      expect(screen.getByRole("tooltip")).toBeTruthy();
-      fireEvent.blur(control);
-    }
+    const section = screen.getByRole("heading", { name: "Sensitivity" }).closest("section");
+    if (!section) throw new Error("no Sensitivity section found");
+    expectEveryControlHasATooltip(section);
   });
 
-  it("wraps \"Set up scenarios\" in a Tooltip", () => {
+  it("wraps every control inside the \"no scenarios yet\" empty state in a Tooltip", () => {
     const noScenariosYet: ForecastPanelData = {
       scenarios: [], activeScenarioId: null, horizon: 5, forecastPeriods: [], drivers: [], ok: false, findings: [], cells: [],
     };
     renderScreen(noScenariosYet);
     openForecast();
-    const setup = screen.getByRole("button", { name: "Set up scenarios" });
-    fireEvent.focus(setup);
-    expect(screen.getByRole("tooltip")).toBeTruthy();
-  });
 
-  it("wraps \"Run sensitivity\" in a Tooltip", () => {
-    renderScreen(baseForecast());
-    openForecast();
-    const run = screen.getByRole("button", { name: "Run sensitivity" });
-    fireEvent.focus(run);
-    expect(screen.getByRole("tooltip")).toBeTruthy();
+    const setup = screen.getByRole("button", { name: "Set up scenarios" });
+    const container = setup.closest("div");
+    if (!container) throw new Error("no empty-state container found");
+    expectEveryControlHasATooltip(container);
   });
 });
