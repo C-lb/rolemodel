@@ -59,9 +59,9 @@ Core 12 members are marked `*`. `Unit` drives formatting: `x` renders `1.84x`, `
 
 | Key | Formula | Unit | Better |
 |---|---|---|---|
-| `dso` * | `accounts_receivable / revenue * days` | days | lower |
-| `dio` * | `inventory / cost_of_revenue * days` | days | lower |
-| `dpo` | `accounts_payable / cost_of_revenue * days` | days | context |
+| `dso` * | `accounts_receivable / revenue`, day-scaled | days | lower |
+| `dio` * | `inventory / cost_of_revenue`, day-scaled | days | lower |
+| `dpo` | `accounts_payable / cost_of_revenue`, day-scaled | days | context |
 | `cash_conversion_cycle` | `dso + dio - dpo` | days | lower |
 | `asset_turnover` * | `revenue / total_assets` | x | higher |
 
@@ -109,7 +109,12 @@ would make the earliest period quietly non-comparable with the rest.
 
 The rule is uniform: it applies to custom ratios exactly as it does to built-ins.
 
-**4.2 Day counts.** `days` is 365 for an `FY` period and 91.25 for a `Q` period. The
+**4.2 Day counts.** The day multiplier is applied by the engine to ratios carrying
+`dayScaled: true`, rather than written into the expression, because `days` is not a line
+item the parser could resolve. It is set on `dso`, `dio` and `dpo` and deliberately not on
+`cash_conversion_cycle`, which sums three figures already expressed in days.
+
+`days` is 365 for an `FY` period and 91.25 for a `Q` period. The
 alternative, annualising quarterly flows by four, is arithmetically the same thing; this
 form keeps the multiplier visible in the component breakdown. Days ratios computed on
 quarterly periods carry a note that they annualise a single quarter.
